@@ -1,4 +1,26 @@
-# Simple HTTP File Server Example
+# ESP32-MIDI
+
+It is a replacement of an old door bell system based on a Z80 with 0 KB RAM (only with registers content) and 2 K EPROM created inthe 80's
+It colud play 3 trakcs simultaneously.
+
+But after 35 years it doesn't work anymore. So I will replace it with anESP32 System and a nanosynth module with a SAM2695
+
+Based on "Simple HTTP File Server Example" and othe examples from esp-idf-repository
+
+It will contain
+* A web service to manage the MIDI-Files and show other informations
+* an NTP-Client to get into real time
+* parts to decode and play MIDI-Files
+
+## Building
+
+I use a Mac but it will also work on linux.
+
+* chekout then esp-idf `https://github.com/espressif/esp-idf.git`
+* set the environment `IDF_PATH=<where you checked out then esp-idf>/esp/esp-idf`
+* add `<where you checked out then esp-idf>/esp/xtensa-esp32-elf/bin` to PATH-Variable `export PATH=$PATH:<..>`
+
+## Hints from the HTTP-Fileserver example
 
 (See the README.md file in the upper level 'examples' directory for more information about examples.)
 
@@ -15,11 +37,11 @@ HTTP file server example demonstrates file serving with both upload and download
 
 File server implementation can be found under `main/file_server.c` which uses SPIFFS for file storage. `main/upload_script.html` has some HTML, JavaScript and Ajax content used for file uploading, which is embedded in the flash image and used as it is when generating the home page of the file server.
 
-## Note
+### Note
 
 `/index.html` and `/favicon.ico` can be overridden by uploading files with same pathname to SPIFFS.
 
-## Usage
+### Usage
 
 * Configure the project using `make menuconfig` and goto `Example Configuration` ->
     1. WIFI SSID: WIFI network to which your PC is also connected to.
@@ -38,6 +60,6 @@ File server implementation can be found under `main/file_server.c` which uses SP
         2. download the uploaded copy back : `curl 192.168.43.130:80/path/on/device/myfile_copy.html > myfile_copy.html`
         3. compare the copy with the original using `cmp myfile.html myfile_copy.html`
 
-## Note
+### Note
 
 Browsers often send large header fields when an HTML form is submit. Therefore, for the purpose of this example, `HTTPD_MAX_REQ_HDR_LEN` has been increased to 1024 in `sdkconfig.defaults`. User can adjust this value as per their requirement, keeping in mind the memory constraint of the hardware in use.
