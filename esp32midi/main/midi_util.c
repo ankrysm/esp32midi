@@ -26,9 +26,7 @@ static const char* TAG = "midi";
 
 static esp_timer_handle_t periodic_timer = NULL;
 
-
-
-
+// predefined signals
 static t_midi_data okdata[]={
 		{2,{0xC0, 14}},
 		{3,{0x90, 72, 0x40}},
