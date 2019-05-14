@@ -16,9 +16,36 @@ It will contain
 
 I use a Mac but it will also work on linux.
 
-* chekout then esp-idf `https://github.com/espressif/esp-idf.git`
+### Preparation
+
+Read the instructions at `https://github.com/espressif/esp-idf/blob/master/docs/en/get-started/index.rst`
+
+* Install python - with brew (homebrew):
+** brew install python
+** in case ofa link error:
+*** `sudo mkdir /usr/local/Frameworks`
+*** `sudo chown $(whoami):admin /usr/local/Frameworks`
+*** `brew link python`
+** Install pip `sudo easy_install pip`
+
+* Install Xcode
+** Install commandline tools `xcode-select --install`
+
+* Toolchain (`https://docs.espressif.com/projects/esp-idf/en/stable/get-started/macos-setup.html`)
+* Download the Macos toolchain: `wget https://dl.espressif.com/dl/xtensa-esp32-elf-osx-1.22.0-80-g6c4433a-5.2.0.tar.gz`
+* extract it and add to PATH:  `export PATH=$PATH:<extract path>/xtensa-esp32-elf/bin`
+
+* checkout then esp-idf `https://github.com/espressif/esp-idf.git`
 * set the environment `IDF_PATH=<where you checked out then esp-idf>/esp/esp-idf`
 * add `<where you checked out then esp-idf>/esp/xtensa-esp32-elf/bin` to PATH-Variable `export PATH=$PATH:<..>`
+
+* `python3 -m pip install --user -r $IDF_PATH/requirements.txt`
+
+### Build
+
+call `make` sometimes a `make clean` helps.
+
+Sometimes especially at the first build after make clean make failes. Call `make` again
 
 ## Hints from the HTTP-Fileserver example
 

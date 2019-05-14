@@ -5,8 +5,20 @@
  *      Author: ankrysm
  */
 
-#ifndef BLINK_ESP32_MAIN_LOCAL_H_
-#define BLINK_ESP32_MAIN_LOCAL_H_
+#ifndef ESP32MIDI_MAIN_LOCAL_H_
+#define ESP32MIDI_MAIN_LOCAL_H_
+
+#ifndef size_t
+#define size_t unsigned int
+#endif
+
+#ifndef false
+#define false 0
+#endif
+
+#ifndef true
+#define true 1
+#endif
 
 // Strukturen
 typedef struct {
@@ -30,4 +42,4 @@ void play_err();
 esp_err_t start_file_server(const char *base_path);
 
 
-#endif /* BLINK_ESP32_MAIN_LOCAL_H_ */
+#endif /* ESP32MIDI_MAIN_LOCAL_H_ */
