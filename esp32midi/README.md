@@ -47,6 +47,12 @@ call `make` sometimes a `make clean` helps.
 
 Sometimes especially at the first build after make clean make failes. Call `make` again
 
+## MIDI-Files
+
+Something about MIDI-Files:
+`http://www.larsrichter-online.de/lmids/midformat.php`
+`http://www.music.mcgill.ca/~ich/classes/mumt306/StandardMIDIfileformat.html`
+
 ## Hints from the HTTP-Fileserver example
 
 (See the README.md file in the upper level 'examples' directory for more information about examples.)
