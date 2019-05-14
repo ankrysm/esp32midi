@@ -3,9 +3,9 @@
 It is a replacement of an old door bell system based on a Z80 with 0 KB RAM (only with registers content) and 2 K EPROM created inthe 80's
 It colud play 3 trakcs simultaneously.
 
-But after 35 years it doesn't work anymore. So I will replace it with anESP32 System and a nanosynth module with a SAM2695
+But after 35 years it doesn't work anymore. So I will replace it with an ESP32 System and a nanosynth module based on a SAM2695
 
-Based on "Simple HTTP File Server Example" and othe examples from esp-idf-repository
+It is a copy of the "Simple HTTP File Server Example" and other examples from esp-idf repository
 
 It will contain
 * A web service to manage the MIDI-Files and show other informations
