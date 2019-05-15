@@ -21,15 +21,15 @@ I use a Mac but it will also work on linux.
 Read the instructions at `https://github.com/espressif/esp-idf/blob/master/docs/en/get-started/index.rst`
 
 * Install python - with brew (homebrew):
-** brew install python
-** in case ofa link error:
-*** `sudo mkdir /usr/local/Frameworks`
-*** `sudo chown $(whoami):admin /usr/local/Frameworks`
-*** `brew link python`
-** Install pip `sudo easy_install pip`
+    * brew install python
+    * in case ofa link error:
+        * `sudo mkdir /usr/local/Frameworks`
+        * `sudo chown $(whoami):admin /usr/local/Frameworks`
+        * `brew link python`
+    * Install pip `sudo easy_install pip`
 
 * Install Xcode
-** Install commandline tools `xcode-select --install`
+    * Install commandline tools `xcode-select --install`
 
 * Toolchain (`https://docs.espressif.com/projects/esp-idf/en/stable/get-started/macos-setup.html`)
 * Download the Macos toolchain: `wget https://dl.espressif.com/dl/xtensa-esp32-elf-osx-1.22.0-80-g6c4433a-5.2.0.tar.gz`
