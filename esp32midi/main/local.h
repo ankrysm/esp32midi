@@ -20,11 +20,40 @@
 #define true 1
 #endif
 
-// Strukturen
-typedef struct {
+// structures
+// static midi-Data
+typedef struct  {
 	int  datalen;
     const char data[10];  // MIDI-Daten
 } t_midi_data;
+
+
+
+// Midi data from file
+typedef struct {
+	int pause;
+	int datalen;
+	char *data;
+	int finished;
+} t_midi_evt;
+
+// Track
+typedef struct midi_track {
+	int trackno;
+	unsigned char buf[256];
+	unsigned long fpos; // file position
+	size_t ridx; // read index on buf
+    struct midi_track *nxt;
+} t_midi_track;
+
+// Midi Song
+typedef struct {
+	int format;
+	int ntracks;
+	long tpq; // division
+	long microsecsperquarter;
+	t_midi_data *tracks;
+} t_midi;
 
 // Prototypes
 // GPIO/LED
@@ -37,6 +66,10 @@ void midi_init();
 void midi_out( const char *data, int len);
 void play_ok();
 void play_err();
+
+// MIDI file
+int handle_midifile(const char *filename);
+int parse_midifile(const char *filename, t_midi *midi);
 
 // Start Fileserver
 esp_err_t start_file_server(const char *base_path);

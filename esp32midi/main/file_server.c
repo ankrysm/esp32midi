@@ -470,9 +470,14 @@ static esp_err_t play_post_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "play file : %s", filename);
+    ESP_LOGI(TAG, "play file : %s at %s", filename, filepath);
 
-    // TODO
+    if ( handle_midifile(filepath)) {
+        ESP_LOGE(TAG, "not a valid midi file : %s", filename);
+         /* Respond with 400 Bad Request */
+         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Not a valid MIDI-File");
+         return ESP_FAIL;
+    }
 
     /* Redirect onto root to see the updated file list */
     httpd_resp_set_status(req, "303 See Other");
