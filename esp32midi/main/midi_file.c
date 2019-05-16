@@ -38,6 +38,139 @@ static *t_midi_evt(t_midi_track *track) {
 	return NULL;
 }
 
+/**
+ * gets the next byte from stream,
+ * fills the tracks buffer if necessary
+ */
+static unsigned char readNxtTrackData(FILE *fd, t_midi_track *trck) {
+	if ( trck->rdpos >= trck->buflen) {
+		// need new data for buffer
+		trck->rdpos=0;
+
+		fsetpos(fd, &(trck->fpos));
+		trck->buflen=fread(trck->buf, 1, sizeof(trck->buf), fd);
+		if ( trck->buflen < 1) {
+			// EOF or read error
+			trck->finished = true;
+			return '\0';
+		}
+		fgetpos(fd, &(trck->fpos));
+	}
+    return trck->buf[(trck->rdpos)++];
+}
+
+static int readNxtEvent(FILE *fd, t_midi_track *trck) {
+	int phase = 0;
+
+	long pause=0;
+	unsigned char event =0;
+	unsigned char metaevent=0;
+	int endofTrack = false;
+
+	size_t szData = 16; // initial ssize of data
+	unsigned char *data = calloc(szData,sizeof(unsigned char)); // TODO free
+	size_t datalen=0; // number of bytes to read
+	size_t datapos=0;
+
+	do {
+		unsigned char c = readNxtTrackData(fd, trck);
+
+		switch(phase) {
+			case 0: // get pause
+				pause = pause << 7 + (c & 0x7F);
+				if ( c < 0x80) {
+					// pause completed
+					phase = 1;
+				}
+				break;
+			case 1: // get event
+				if ( c < 0x80 ) {
+					// use last event
+					event = trck->lastevent;
+					datalen = -1; // 1 byte less to read
+
+					if ( datapos >= szData) {
+						szData += 16;
+						data = realloc(data, szData); // TODO free
+					}
+					data[datapos++] = c;
+
+				} else {
+					// new event
+					event = trck->lastevent = c;
+					datalen=0;
+				}
+				if ( event == 0xFF ) {
+					// meta event, read further data
+					phase = 4;
+				} else {
+					// other events, decide on bit 8-5 what to do
+					unsigned char evtc = event & 0xF0;
+					if ( evtc == 0xC0 || evtc == 0xD0) {
+						// 1 data byte expected
+						datalen++;
+						if ( datalen == 0 ) {
+							// completed, maybe as a result of lastevent
+							phase = 99;
+							break;
+						}
+						phase = 3; // read more data
+					} else if ( evtc ==  0xF0) {
+						// Spezialfall sysex evt:
+						// das sind mit F0 und F7 geklammerte Midi-Daten
+						// bei evt=F0 muss in den Daten das Start-F0 hinzugefügt werden,
+						// die Daten sollten das Ende-F7-Datum enthalten
+						// bei evt=F7 muss F0 und F7n in den Daten enthalten sein
+
+						phase = 2; // read event len
+						datalen=0;
+					} else {
+						// all others need 2 data bytes
+						datalen += 2;
+						phase = 3;
+					}
+				} // other events
+				break;
+			case 2: // read event len, handle data like in pause
+				datalen = datalen << 7 + (c & 0x7F);
+				if ( c < 0x80 ) {
+					// datalen complete
+					if ( datalen == 0) {
+						phase = 99; // completed
+					} else {
+						phase = 3; // read data
+					}
+				}
+				break;
+			case 3: // read data
+				if ( datapos >= szData) {
+					szData += 16;
+					data = realloc(data, szData);
+				}
+				data[datapos++] = c;
+				datalen--;
+				if ( datalen == 0 ) {
+					// completed
+					phase = 99;
+				}
+				break;
+			case 4: // "meta event" nummber
+				metaevent = c;
+				if ( c== 0x2F) {
+					endofTrack = true;
+				}
+				phase = 2;
+				break;
+			default:
+		        ESP_LOGE(TAG, "unexpected phase %d", phase);
+		        phase=99;
+		}
+	} while (phase < 99);
+
+	// all data for midi event complete.
+	// TODO create structure
+}
+
 int parse_midifile(const char *filepath, t_midi *midi) {
     FILE *fd = NULL;
     struct stat file_stat;
@@ -84,6 +217,7 @@ int parse_midifile(const char *filepath, t_midi *midi) {
 
 
 	    // TODO Tracks
+	    int trackno=0;
 	    fpos_t fpos=14; // beginning of first track
 	    int failed=false;
 	    while ( fpos < fsz) {
@@ -108,6 +242,12 @@ int parse_midifile(const char *filepath, t_midi *midi) {
 			} else {
 				// it's a track chunk
 		        ESP_LOGI(TAG, "it's a TrackChunk len='%ld'",  trackLen);
+		        t_midi_track *trck = calloc(1, sizeof(t_midi_track));
+		        trck->len = trackLen;
+		        trck->trackno = ++trackno;
+		        trck->rdpos=0;
+		        trck->buflen=0;
+		        trck->finished = 0;
 			}
 			fpos += trackLen;
 	    };

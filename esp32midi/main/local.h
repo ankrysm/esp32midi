@@ -32,17 +32,20 @@ typedef struct  {
 // Midi data from file
 typedef struct {
 	int pause;
-	int datalen;
-	char *data;
-	int finished;
+	size_t datalen;
+	unsigned char *data;
 } t_midi_evt;
 
 // Track
 typedef struct midi_track {
 	int trackno;
+	unsigned int len;
 	unsigned char buf[256];
 	unsigned long fpos; // file position
-	size_t ridx; // read index on buf
+	unsigned int buflen; // number of bytes in buffer
+	unsigned int rdpos; // read position on buffer
+	unsigned char lastevent;
+	int finished;
     struct midi_track *nxt;
 } t_midi_track;
 
