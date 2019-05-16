@@ -30,8 +30,11 @@ typedef struct  {
 
 
 // Midi data from file
-typedef struct {
-	int pause;
+typedef struct midi_evt {
+	long pause;
+	unsigned char event;
+	unsigned char metaevent;
+	int endofTrack;
 	size_t datalen;
 	unsigned char *data;
 } t_midi_evt;
@@ -41,7 +44,7 @@ typedef struct midi_track {
 	int trackno;
 	unsigned int len;
 	unsigned char buf[256];
-	unsigned long fpos; // file position
+	long fpos; // file position
 	unsigned int buflen; // number of bytes in buffer
 	unsigned int rdpos; // read position on buffer
 	unsigned char lastevent;
@@ -51,12 +54,14 @@ typedef struct midi_track {
 
 // Midi Song
 typedef struct {
+	FILE *fd;
+	char *filepath;
 	int format;
 	int ntracks;
 	long tpq; // division
 	long microsecsperquarter;
-	t_midi_data *tracks;
-} t_midi;
+	t_midi_track *tracks;
+} t_midi_song;
 
 // Prototypes
 // GPIO/LED
@@ -72,7 +77,8 @@ void play_err();
 
 // MIDI file
 int handle_midifile(const char *filename);
-int parse_midifile(const char *filename, t_midi *midi);
+int open_midifile(const char *filename);
+int parse_midifile();
 
 // Start Fileserver
 esp_err_t start_file_server(const char *base_path);

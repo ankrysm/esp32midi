@@ -1,4 +1,5 @@
-# ESP32-MIDI
+# ESP32-MIDI (heavy work in progress - stay tuned )
+
 
 It is a replacement of an old door bell system based on a Z80 with 0 KB RAM (only with registers content) and 2 K EPROM created inthe 80's
 It colud play 3 trakcs simultaneously.
