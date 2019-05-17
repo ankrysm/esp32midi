@@ -54,6 +54,7 @@ Something about MIDI-Files:
 `http://www.larsrichter-online.de/lmids/midformat.php`
 `http://www.music.mcgill.ca/~ich/classes/mumt306/StandardMIDIfileformat.html`
 `https://www.csie.ntu.edu.tw/~r92092/ref/midi/`
+`http://somascape.org/midi/tech/mfile.html`
 
 ## Hints from the HTTP-Fileserver example
 

@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <sys/stat.h>
@@ -183,9 +184,10 @@ static void initSongData() {
 		if (song->tracks) {
 			while (song->tracks) {
 				t_midi_track *tmp = song->tracks->nxt;
-				song->tracks->nxt = song->tracks->nxt->nxt;
-
-				free(tmp);
+				song->tracks = song->tracks->nxt;
+				if ( tmp ) {
+					free(tmp);
+				}
 			}
 		}
 
@@ -277,11 +279,11 @@ int open_midifile(const char *filepath) {
 
 			// must start with "MTrk"
 			if (strncmp(buf, "MTrk", 4)) {
-				ESP_LOGI(TAG, "not a MidiTrackChunk '%s', len=%ld", buf, trackLen);
+				ESP_LOGI(TAG, "fpos %ld: not a MidiTrackChunk '%s', len=%ld", fpos, buf, trackLen);
 			} else {
 				// it's a track chunk
 				trackno++;
-				ESP_LOGI(TAG, "MidiTrackChunk(%d) len='%ld'", trackno, trackLen);
+				ESP_LOGI(TAG, "fpos %ld: MidiTrackChunk(%d) len='%ld'", fpos, trackno, trackLen);
 
 				t_midi_track *trck = calloc(1, sizeof(t_midi_track));
 				trck->len = trackLen;
@@ -335,10 +337,15 @@ int parse_midifile() {
 		memset(txt, 0, sizeof(txt));
 		if (evt.datalen > 0) {
 			for (int i = 0; i < evt.datalen; i++) {
-				snprintf(&txt[strlen(txt)], sizeof(txt) - strlen(txt), " %02X", evt.data[i]);
+				snprintf(&txt[strlen(txt)], sizeof(txt) - strlen(txt), "%02X ", evt.data[i]);
 			}
+			for (int i = 0; i < evt.datalen; i++) {
+				snprintf(&txt[strlen(txt)], sizeof(txt) - strlen(txt), "%c",
+						isprint(evt.data[i]) ? evt.data[i] :'.');
+			}
+
 		}
-		ESP_LOGI(TAG, "track %d, Pause=%ld Event=%x Datalen=%d '%s'", t->trackno, evt.pause, evt.event, evt.datalen, txt);
+		ESP_LOGI(TAG, "track %d, Pause=%ld Event=%x Metaevt=%x Datalen=%d '%s'", t->trackno, evt.pause, evt.event, evt.metaevent, evt.datalen, txt);
 
 		if (evt.data) {
 			free(evt.data);
@@ -359,6 +366,7 @@ int handle_midifile(const char *filename) {
 		if (open_midifile(filename)) break;
 		if (parse_midifile()) break;
 
+		rc = 0;
 	} while(0);
 
 	if ( song && song->fd) {
@@ -366,7 +374,7 @@ int handle_midifile(const char *filename) {
 		song->fd=NULL;
 	}
 
-	// check if needed TODO
+	// check if needed at this time TODO
 	initSongData();
 
 	return rc;
