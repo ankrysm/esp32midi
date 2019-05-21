@@ -11,6 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <sys/stat.h>
+
 #include "driver/uart.h"
 #include "driver/gpio.h"
 #include "esp_timer.h"
@@ -19,7 +20,7 @@
 
 static const char *TAG = "midi_file";
 
-static 	t_midi_song *song=NULL;
+static 	t_midi_song *globalSongData=NULL;
 
 static long read_long(size_t n, FILE *fd) {
     unsigned char buf[32];
@@ -37,6 +38,18 @@ static long read_long(size_t n, FILE *fd) {
 }
 
 
+static void clearEvent(t_midi_evt *evt) {
+	evt->event = 0;
+	evt->metaevent = 0;
+	evt->evt_time =0;
+	evt->status = no_event;
+	evt->datalen = 0;
+
+	if ( evt->data) {
+		free(evt->data);
+	}
+	evt->data = NULL;
+}
 /**
  * gets the next byte from stream,
  * fills the tracks buffer if necessary
@@ -58,17 +71,11 @@ static unsigned char readNxtTrackData(FILE *fd, t_midi_track *trck) {
     return trck->buf[(trck->rdpos)++];
 }
 
-static void readNxtEvent(t_midi_track *trck, t_midi_evt *evt) {
+static void readNxtEvent(t_midi_track *trck) {
 	int phase = 0;
 
-	evt->pause = 0;
-	evt->event = 0;
-	evt->metaevent = 0;
-	evt->endofTrack = false;
-
-	if (evt->data) {
-		free(evt->data);
-	}
+	t_midi_evt *evt = &(trck->evt);
+	clearEvent(evt);
 
 	size_t szData = 16; // initial ssize of data
 	evt->data = calloc(szData, sizeof(unsigned char));
@@ -77,14 +84,16 @@ static void readNxtEvent(t_midi_track *trck, t_midi_evt *evt) {
 	size_t datalen = 0; // number of bytes to read
 
 	do {
-		unsigned char c = readNxtTrackData(song->fd, trck);
+		unsigned char c = readNxtTrackData(globalSongData->fd, trck);
 
 		switch (phase) {
-			case 0: // get pause
-				evt->pause = (evt->pause << 7) + (c & 0x7F);
+			case 0: // get delta time
+				evt->evt_time = (evt->evt_time << 7) + (c & 0x7F);
 				if (c < 0x80) {
 					// pause completed
 					phase = 1;
+					trck->track_time += evt->evt_time;
+					evt->evt_time = trck->track_time;
 				}
 				break;
 			case 1: // get event
@@ -155,13 +164,14 @@ static void readNxtEvent(t_midi_track *trck, t_midi_evt *evt) {
 				datalen--;
 				if (datalen == 0) {
 					// completed
+					evt->status = has_event;
 					phase = 99;
 				}
 				break;
 			case 4: // "meta event" nummber
 				evt->metaevent = c;
 				if (c == 0x2F) {
-					evt->endofTrack = true;
+					evt->status = has_end_of_track;
 				}
 				phase = 2;
 				break;
@@ -175,31 +185,31 @@ static void readNxtEvent(t_midi_track *trck, t_midi_evt *evt) {
 }
 
 static void initSongData() {
-	if (song == NULL) {
+	if (globalSongData == NULL) {
 		// create new data
-		song = calloc(1, sizeof(t_midi_song));
+		globalSongData = calloc(1, sizeof(t_midi_song));
 
 	} else {
 		// reset data
-		if (song->tracks) {
-			while (song->tracks) {
-				t_midi_track *tmp = song->tracks->nxt;
-				song->tracks = song->tracks->nxt;
+		if (globalSongData->tracks) {
+			while (globalSongData->tracks) {
+				t_midi_track *tmp = globalSongData->tracks->nxt;
+				globalSongData->tracks = globalSongData->tracks->nxt;
 				if ( tmp ) {
 					free(tmp);
 				}
 			}
 		}
 
-		if (song->filepath) {
-			free(song->filepath);
+		if (globalSongData->filepath) {
+			free(globalSongData->filepath);
 		}
 
-		if (song->fd) {
-			fclose(song->fd);
+		if (globalSongData->fd) {
+			fclose(globalSongData->fd);
 		}
 
-		memset(song, 0, sizeof(t_midi_song));
+		memset(globalSongData, 0, sizeof(t_midi_song));
 	}
 
 }
@@ -214,7 +224,7 @@ int open_midifile(const char *filepath) {
 	// initialize song-data
 	initSongData();
 
-	song->filepath = strdup(filepath);
+	globalSongData->filepath = strdup(filepath);
 
 	// try to open file
 	if (stat(filepath, &file_stat) == -1) {
@@ -224,8 +234,8 @@ int open_midifile(const char *filepath) {
 
 	fpos_t fsz = file_stat.st_size;
 
-	song->fd = fopen(filepath, "r");
-	if (!song->fd) {
+	globalSongData->fd = fopen(filepath, "r");
+	if (!globalSongData->fd) {
 		ESP_LOGE(TAG, "Failed to open existing file : %s", filepath);
 		return -1;
 	}
@@ -235,34 +245,37 @@ int open_midifile(const char *filepath) {
 
 	do {
 		memset(buf, 0, sizeof(buf));
-		fread(buf, 1, 4, song->fd);
+		fread(buf, 1, 4, globalSongData->fd);
 		// must start with "MThd"
 		if (strncmp(buf, "MThd", 4)) {
 			ESP_LOGE(TAG, "not a MIDI file");
 			break;
 		}
 		// 4 byte headerlen
-		long headerLen = read_long(4, song->fd);
+		long headerLen = read_long(4, globalSongData->fd);
 		if (headerLen != 6) {
 			ESP_LOGE(TAG, "header len is not 6");
 			break;
 		}
 		// 2 byte format
-		song->format = read_long(2, song->fd);
+		globalSongData->format = read_long(2, globalSongData->fd);
 		// 2 byte #tracks
-		song->ntracks = read_long(2, song->fd);
+		globalSongData->ntracks = read_long(2, globalSongData->fd);
 		// 2 byte division resp. tpq
-		song->tpq = read_long(2, song->fd);
-		song->microsecsperquarter = 500000; // Tempo 120 = 500ms je 1/4 = 500 000 µs
+		globalSongData->tpq = read_long(2, globalSongData->fd);
+		globalSongData->microsecsperquarter = 500000; // Tempo 120 = 500ms je 1/4 = 500 000 µs
 		ESP_LOGI(TAG, "Midi-Format=%d, tracks=%d, tpq=%ld",
-				song->format, song->ntracks, song->tpq);
+				globalSongData->format, globalSongData->ntracks, globalSongData->tpq);
+
+		globalSongData->nxt_timestep = -1;
+		globalSongData->song_time = 0;
 
 		// Tracks
 		int trackno = 0;
 		fpos_t fpos = 14; // beginning of first track
 		int failed = false;
 		while (fpos < fsz) {
-			if (fsetpos(song->fd, &fpos)) {
+			if (fsetpos(globalSongData->fd, &fpos)) {
 				ESP_LOGE(TAG, "fsetpos failed at %ld", fpos);
 				failed = true;
 				break;
@@ -270,12 +283,12 @@ int open_midifile(const char *filepath) {
 
 			// Read chunk type 4 byte
 			memset(buf, 0, sizeof(buf));
-			fread(buf, 1, 4, song->fd);
+			fread(buf, 1, 4, globalSongData->fd);
 			// 4 byte headerlen
-			long trackLen = read_long(4, song->fd);
+			long trackLen = read_long(4, globalSongData->fd);
 
 			// actual file position - track data starts here
-			fgetpos(song->fd, &fpos);
+			fgetpos(globalSongData->fd, &fpos);
 
 			// must start with "MTrk"
 			if (strncmp(buf, "MTrk", 4)) {
@@ -293,13 +306,15 @@ int open_midifile(const char *filepath) {
 				trck->finished = false;
 				trck->lastevent = 0;
 				trck->fpos = fpos;
+				trck->track_time = 0;
+				trck->evt.status = need_event;
 
 				// add to song
 				if (last_track) {
 					last_track->nxt = trck;
 					last_track = last_track->nxt;
 				} else {
-					song->tracks = trck;
+					globalSongData->tracks = trck;
 					last_track = trck;
 				}
 			}
@@ -316,46 +331,99 @@ int open_midifile(const char *filepath) {
 	return rc;
 }
 
+static void printEvent(int trackno, t_midi_evt *evt, const char *msg) {
+	char txt[256];
+	memset(txt, 0, sizeof(txt));
+	if (evt->datalen > 0) {
+		for (int i = 0; i < evt->datalen; i++) {
+			snprintf(&txt[strlen(txt)], sizeof(txt) - strlen(txt), "%02X ", evt->data[i]);
+		}
+		for (int i = 0; i < evt->datalen; i++) {
+			snprintf(&txt[strlen(txt)], sizeof(txt) - strlen(txt), "%c",
+					isprint(evt->data[i]) ? evt->data[i] :'.');
+		}
+	}
+	ESP_LOGI(TAG, "track %d, Pause=%ld Event=%x Metaevt=%x Datalen=%d '%s' %s %s",
+			trackno, evt->evt_time, evt->event, evt->metaevent, evt->datalen,
+			EVENT_STATE2TXT(evt->status), msg,
+			txt);
+
+}
 
 int parse_midifile() {
-	int rc = 0;
 
-	if (!song || !song->tracks) {
-		ESP_LOGE(TAG, "parse_midifile: NODATA");
-		return 0;
+	if (!globalSongData || !globalSongData->tracks || !globalSongData->fd) {
+		ESP_LOGE(TAG, "parse_midifile: nodata / notracks or no open file");
+		return -1;
 	}
 
-	ESP_LOGI(TAG, "parse midifile Start");
+	ESP_LOGI(TAG, "parse midifile Start %ld", globalSongData->song_time);
 
-	for (t_midi_track *t = song->tracks; t; t = t->nxt) {
-		t_midi_evt evt;
-		memset(&evt, 0, sizeof(evt));
+	long min_deltatime=LONG_MAX;
+	int activeTracks=0;
+	for (t_midi_track *t = globalSongData->tracks; t; t = t->nxt) {
+		if (t->finished ) {
+			continue;
+		}
 
-		readNxtEvent(t, &evt);
+		t_midi_evt *evt = &(t->evt);
 
-		char txt[256];
-		memset(txt, 0, sizeof(txt));
-		if (evt.datalen > 0) {
-			for (int i = 0; i < evt.datalen; i++) {
-				snprintf(&txt[strlen(txt)], sizeof(txt) - strlen(txt), "%02X ", evt.data[i]);
-			}
-			for (int i = 0; i < evt.datalen; i++) {
-				snprintf(&txt[strlen(txt)], sizeof(txt) - strlen(txt), "%c",
-						isprint(evt.data[i]) ? evt.data[i] :'.');
+		while( !t->finished) {
+			if ( evt->status == need_event) {
+				// need an event
+				readNxtEvent(t);
 			}
 
-		}
-		ESP_LOGI(TAG, "track %d, Pause=%ld Event=%x Metaevt=%x Datalen=%d '%s'", t->trackno, evt.pause, evt.event, evt.metaevent, evt.datalen, txt);
+			if ( evt->status == has_end_of_track) {
+				t->finished = true;
+				clearEvent(evt);
+				ESP_LOGI(TAG, "track %d: end of track", t->trackno);
+				break; // with next track
+			}
 
-		if (evt.data) {
-			free(evt.data);
-		}
-		// TODO weitere events parsen
+			if (evt->status != has_event ) {
+				printEvent( t->trackno, evt, "ups");
+				ESP_LOGE(TAG, "track %d: should have an event at fpos %ld", t->trackno, t->fpos);
+				t->finished = true;
+				break;  // ups
+			}
 
+			activeTracks++;
+
+			if (evt->evt_time > globalSongData->song_time ) {
+				// have to wait
+				long dt = evt->evt_time - globalSongData->song_time;
+				if (dt < min_deltatime) {
+					min_deltatime = dt;
+				}
+				break; // while
+			}
+
+			// process event
+			if ( evt->event == 0xFF && evt->metaevent == 0x51) {
+				// new tempo TODO
+				printEvent( t->trackno, evt, "new tempo");
+
+			} else if ( (evt->event & 0xF0) != 0xF0 ) {
+				// event to play
+				printEvent( t->trackno, evt, "play");
+			} else {
+				printEvent( t->trackno, evt, "ignored");
+			}
+
+			readNxtEvent(t);
+
+		} // while, one track completed
+
+		if ( min_deltatime < 0) {
+			min_deltatime = 1;
+		}
+	} // all tracks completed
+
+	if ( activeTracks > 0) {
+		globalSongData->song_time += min_deltatime;
 	}
-
-	ESP_LOGI(TAG, "parse midifile ended");
-	return rc;
+	return activeTracks;
 }
 
 
@@ -364,14 +432,15 @@ int handle_midifile(const char *filename) {
 	int rc = -1;
 	do {
 		if (open_midifile(filename)) break;
-		if (parse_midifile()) break;
+		while (parse_midifile() >0) {};
 
+		ESP_LOGI(TAG, "parse midifile ended");
 		rc = 0;
 	} while(0);
 
-	if ( song && song->fd) {
-		fclose(song->fd);
-		song->fd=NULL;
+	if ( globalSongData && globalSongData->fd) {
+		fclose(globalSongData->fd);
+		globalSongData->fd=NULL;
 	}
 
 	// check if needed at this time TODO

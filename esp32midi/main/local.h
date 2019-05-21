@@ -8,6 +8,7 @@
 #ifndef ESP32MIDI_MAIN_LOCAL_H_
 #define ESP32MIDI_MAIN_LOCAL_H_
 
+// to make eclipse happy:
 #ifndef size_t
 #define size_t unsigned int
 #endif
@@ -20,6 +21,18 @@
 #define true 1
 #endif
 
+// end of happiness...
+
+enum EVENT_STATE
+	{no_event, need_event, has_event, has_end_of_track };
+
+#define EVENT_STATE2TXT(c) ( \
+	c==no_event ? "no event" : \
+	c==need_event ? "need event" : \
+	c==has_event ? "has event" : \
+	c==has_end_of_track ? "end of track" : "???" \
+)
+
 // structures
 // static midi-Data
 typedef struct  {
@@ -31,10 +44,10 @@ typedef struct  {
 
 // Midi data from file
 typedef struct midi_evt {
-	long pause;
+	long evt_time;
 	unsigned char event;
 	unsigned char metaevent;
-	int endofTrack;
+	int status;
 	size_t datalen;
 	unsigned char *data;
 } t_midi_evt;
@@ -47,9 +60,13 @@ typedef struct midi_track {
 	long fpos; // file position
 	unsigned int buflen; // number of bytes in buffer
 	unsigned int rdpos; // read position on buffer
-	unsigned char lastevent;
-	int finished;
-    struct midi_track *nxt;
+	//
+	long track_time;
+	unsigned char lastevent; // in case of repeated events
+	int finished; // finished means: got end of track Event FF 21 00
+	t_midi_evt evt;
+	//
+	struct midi_track *nxt;
 } t_midi_track;
 
 // Midi Song
@@ -60,6 +77,8 @@ typedef struct {
 	int ntracks;
 	long tpq; // division
 	long microsecsperquarter;
+	long song_time;
+	long nxt_timestep;
 	t_midi_track *tracks;
 } t_midi_song;
 
