@@ -56,6 +56,20 @@ void midi_out( const char *data, int len) {
     uart_write_bytes(UART_NUM_2, data, len);
 }
 
+void midi_reset() {
+    char *init_sequenz = calloc(40, sizeof(char));
+    int pos=0;
+    init_sequenz[pos++]=0xFF; //Midi-Reset
+    for ( int i=0xC0; i <= 0xCF; i++) {
+    	init_sequenz[pos++]=i;
+    	init_sequenz[pos++]=0x00;
+    }
+    ESP_ERROR_CHECK(pos >= 40);
+
+    midi_out(init_sequenz, pos );
+    free(init_sequenz);
+
+}
 void midi_init() {
     /* Configure parameters of an UART driver,
      * communication pins and install the driver */
@@ -70,18 +84,7 @@ void midi_init() {
     uart_set_pin(UART_NUM_2, MIDI_TXD, MIDI_RXD, MIDI_RTS, MIDI_CTS);
     uart_driver_install(UART_NUM_2, BUF_SIZE * 2, 0, 0, NULL, 0);
 
-    char *init_sequenz = calloc(40, sizeof(char));
-    int pos=0;
-    init_sequenz[pos++]=0xFF; //Midi-Reset
-    for ( int i=0xC0; i <= 0xCF; i++) {
-    	init_sequenz[pos++]=i;
-    	init_sequenz[pos++]=0x00;
-    }
-    ESP_ERROR_CHECK(pos >= 40);
-
-    midi_out(init_sequenz, pos );
-    free(init_sequenz);
-
+    midi_reset();
 }
 
 

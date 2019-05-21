@@ -45,6 +45,7 @@ typedef struct  {
 // Midi data from file
 typedef struct midi_evt {
 	long evt_time;
+	long delta_time;
 	unsigned char event;
 	unsigned char metaevent;
 	int status;
@@ -73,12 +74,18 @@ typedef struct midi_track {
 typedef struct {
 	FILE *fd;
 	char *filepath;
-	int format;
+	int format; // from header
 	int ntracks;
+	//
 	long tpq; // division
-	long microsecsperquarter;
-	long song_time;
-	long nxt_timestep;
+	long microsecsperquarter; // tempo
+	long microseconds_per_tick;
+	long song_time; //
+	long quantization; // 8,16,32,64
+	// play parameter
+	long timermillies; // timerperiod in ms
+	long timerticks; // ticks per timer processing
+	int64_t starttime;
 	t_midi_track *tracks;
 } t_midi_song;
 
@@ -93,6 +100,7 @@ void midi_init();
 void midi_out( const char *data, int len);
 void play_ok();
 void play_err();
+void midi_reset();
 
 // MIDI file
 int handle_midifile(const char *filename);
