@@ -23,6 +23,10 @@
 
 // end of happiness...
 
+#ifndef uchar
+#define uchar unsigned char
+#endif
+
 enum EVENT_STATE
 	{no_event, need_event, has_event, has_end_of_track };
 
@@ -50,14 +54,14 @@ typedef struct midi_evt {
 	unsigned char metaevent;
 	int status;
 	size_t datalen;
-	unsigned char *data;
+	char *data;
 } t_midi_evt;
 
 // Track
 typedef struct midi_track {
 	int trackno;
 	unsigned int len;
-	unsigned char buf[256];
+	char buf[256];
 	long fpos; // file position
 	unsigned int buflen; // number of bytes in buffer
 	unsigned int rdpos; // read position on buffer
@@ -98,6 +102,7 @@ void blue_off();
 // MIDI
 void midi_init();
 void midi_out( const char *data, int len);
+void midi_out_evt( const char evt, const char *data, int len);
 void play_ok();
 void play_err();
 void midi_reset();

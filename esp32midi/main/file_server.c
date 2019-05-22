@@ -473,6 +473,7 @@ static esp_err_t play_post_handler(httpd_req_t *req)
     ESP_LOGI(TAG, "play file : %s at %s", filename, filepath);
 
     if ( handle_midifile(filepath)) {
+    	play_err();
         ESP_LOGE(TAG, "not a valid midi file : %s", filename);
          /* Respond with 400 Bad Request */
          httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Not a valid MIDI-File");

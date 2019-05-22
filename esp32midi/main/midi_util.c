@@ -56,6 +56,11 @@ void midi_out( const char *data, int len) {
     uart_write_bytes(UART_NUM_2, data, len);
 }
 
+void midi_out_evt( const char evt, const char *data, int len) {
+    uart_write_bytes(UART_NUM_2, &evt, 1);
+    uart_write_bytes(UART_NUM_2, data, len);
+}
+
 void midi_reset() {
     char *init_sequenz = calloc(40, sizeof(char));
     int pos=0;
