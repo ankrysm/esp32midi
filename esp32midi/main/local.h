@@ -31,10 +31,10 @@ enum EVENT_STATE
 	{no_event, need_event, has_event, has_end_of_track };
 
 #define EVENT_STATE2TXT(c) ( \
-	c==no_event ? "no event" : \
-	c==need_event ? "need event" : \
-	c==has_event ? "has event" : \
-	c==has_end_of_track ? "end of track" : "???" \
+	c==no_event ? "'no event'" : \
+	c==need_event ? "'need event'" : \
+	c==has_event ? "'has event'" : \
+	c==has_end_of_track ? "'end of track'" : "???" \
 )
 
 // structures
@@ -84,7 +84,8 @@ typedef struct {
 	long tpq; // division
 	long microsecsperquarter; // tempo
 	long microseconds_per_tick;
-	long song_time; //
+	long song_ticks; // ticks from the beginning
+	long song_millies; // millies from the beginning
 	long quantization; // 8,16,32,64
 	// play parameter
 	long timermillies; // timerperiod in ms
@@ -108,9 +109,11 @@ void play_err();
 void midi_reset();
 
 // MIDI file
-int handle_midifile(const char *filename);
 int open_midifile(const char *filename);
 int parse_midifile();
+int handle_play_midifile(const char *filename);
+int handle_print_midifile(const char *filename);
+int handle_stop_midifile();
 
 // Start Fileserver
 esp_err_t start_file_server(const char *base_path);

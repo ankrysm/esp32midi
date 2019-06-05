@@ -107,7 +107,7 @@ static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
     httpd_resp_sendstr_chunk(req,
         "<table class=\"fixed\" border=\"1\">"
         "<col width=\"800px\" /><col width=\"300px\" /><col width=\"300px\" /><col width=\"100px\" />"
-        "<thead><tr><th>Name</th><th>Type</th><th>Size (Bytes)</th><th>Delete</th><th>Play</th></tr></thead>"
+        "<thead><tr><th>Name</th><th>Type</th><th>Size (Bytes)</th><th>Delete</th><th>Play</th><th>Print</th></tr></thead>"
         "<tbody>");
 
     /* Iterate over all files / folders and fetch their names and sizes */
@@ -148,12 +148,22 @@ static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
         httpd_resp_sendstr_chunk(req, entry->d_name);
         httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Play</button></form>");
 
+        httpd_resp_sendstr_chunk(req, "</td><td>");
+        httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/print");
+        httpd_resp_sendstr_chunk(req, req->uri);
+        httpd_resp_sendstr_chunk(req, entry->d_name);
+        httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Print</button></form>");
+
         httpd_resp_sendstr_chunk(req, "</td></tr>\n");
     }
     closedir(dir);
 
     /* Finish the file list table */
     httpd_resp_sendstr_chunk(req, "</tbody></table>");
+
+    httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/stop");
+    httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Stop</button></form>");
+
 
     /* Send remaining chunk of HTML file to complete it */
     httpd_resp_sendstr_chunk(req, "</body></html>");
@@ -210,6 +220,23 @@ static const char* get_path_from_uri(char *dest, const char *base_path, const ch
 
     /* Return pointer to path, skipping the base */
     return dest + base_pathlen;
+}
+
+/**
+ * Handler Stop playing
+ */
+static esp_err_t stop_playing_post_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Stop Playing %s",req->uri);
+
+    handle_stop_midifile();
+
+    /* Redirect onto root to see the file list */
+    httpd_resp_set_status(req, "303 See Other");
+    httpd_resp_set_hdr(req, "Location", "/");
+    httpd_resp_sendstr(req, "Stop playing successfully");
+
+    return ESP_OK;
 }
 
 /* Handler to download a file kept on the server */
@@ -440,7 +467,7 @@ static esp_err_t delete_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* Handler to play a  */
+/* Handler to play a midifile */
 static esp_err_t play_post_handler(httpd_req_t *req)
 {
     char filepath[FILE_PATH_MAX];
@@ -472,7 +499,7 @@ static esp_err_t play_post_handler(httpd_req_t *req)
 
     ESP_LOGI(TAG, "play file : %s at %s", filename, filepath);
 
-    if ( handle_midifile(filepath)) {
+    if ( handle_play_midifile(filepath)) {
     	play_err();
         ESP_LOGE(TAG, "not a valid midi file : %s", filename);
          /* Respond with 400 Bad Request */
@@ -487,7 +514,56 @@ static esp_err_t play_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* Function to start the file server */
+/* Handler to play a midifile */
+static esp_err_t print_post_handler(httpd_req_t *req)
+{
+    char filepath[FILE_PATH_MAX];
+    struct stat file_stat;
+
+    // Skip leading "/print" from URI to get filename
+    // Note sizeof() counts NULL termination hence the -1
+    const char *filename = get_path_from_uri(filepath, ((struct file_server_data *)req->user_ctx)->base_path,
+                                             req->uri  + sizeof("/print") - 1, sizeof(filepath));
+    if (!filename) {
+        /* Respond with 500 Internal Server Error */
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Filename too long");
+        return ESP_FAIL;
+    }
+
+    // Filename cannot have a trailing '/'
+    if (filename[strlen(filename) - 1] == '/') {
+        ESP_LOGE(TAG, "Invalid filename : %s", filename);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Invalid filename");
+        return ESP_FAIL;
+    }
+
+    if (stat(filepath, &file_stat) == -1) {
+        ESP_LOGE(TAG, "File does not exist : %s", filename);
+        /* Respond with 400 Bad Request */
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "File does not exist");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "print file : %s at %s", filename, filepath);
+
+    if ( handle_print_midifile(filepath)) {
+    	play_err();
+        ESP_LOGE(TAG, "not a valid midi file : %s", filename);
+         /* Respond with 400 Bad Request */
+         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Not a valid MIDI-File");
+         return ESP_FAIL;
+    }
+
+    /* Redirect onto root to see the updated file list */
+    httpd_resp_set_status(req, "303 See Other");
+    httpd_resp_set_hdr(req, "Location", "/");
+    httpd_resp_sendstr(req, "Printing successfully");
+    return ESP_OK;
+}
+
+/**
+ *  Function to start the file server
+ */
 esp_err_t start_file_server(const char *base_path)
 {
     static struct file_server_data *server_data = NULL;
@@ -526,7 +602,7 @@ esp_err_t start_file_server(const char *base_path)
         return ESP_FAIL;
     }
 
-    /* URI handler for getting uploaded files */
+    // URI handler for getting uploaded files
     httpd_uri_t file_download = {
         .uri       = "/*",  // Match all URIs of type /path/to/file
         .method    = HTTP_GET,
@@ -535,7 +611,7 @@ esp_err_t start_file_server(const char *base_path)
     };
     httpd_register_uri_handler(server, &file_download);
 
-    /* URI handler for uploading files to server */
+    // URI handler for uploading files to server
     httpd_uri_t file_upload = {
         .uri       = "/upload/*",   // Match all URIs of type /upload/path/to/file
         .method    = HTTP_POST,
@@ -544,7 +620,7 @@ esp_err_t start_file_server(const char *base_path)
     };
     httpd_register_uri_handler(server, &file_upload);
 
-    /* URI handler for deleting files from server */
+    // URI handler for deleting files from server
     httpd_uri_t file_delete = {
         .uri       = "/delete/*",   // Match all URIs of type /delete/path/to/file
         .method    = HTTP_POST,
@@ -553,7 +629,7 @@ esp_err_t start_file_server(const char *base_path)
     };
     httpd_register_uri_handler(server, &file_delete);
 
-    /* URI handler for deleting files from server */
+    // URI handler for playing a midifile
     httpd_uri_t file_play = {
         .uri       = "/play/*",   // Match all URIs of type /delete/path/to/file
         .method    = HTTP_POST,
@@ -561,6 +637,24 @@ esp_err_t start_file_server(const char *base_path)
         .user_ctx  = server_data    // Pass server data as context
     };
     httpd_register_uri_handler(server, &file_play);
+
+    // URI handler for printing a midifile - serial monitor needed
+     httpd_uri_t file_print = {
+         .uri       = "/print/*",   // Match all URIs of type /delete/path/to/file
+         .method    = HTTP_POST,
+         .handler   = print_post_handler,
+         .user_ctx  = server_data    // Pass server data as context
+     };
+     httpd_register_uri_handler(server, &file_print);
+
+    // URI handler for stop playing
+    httpd_uri_t stop_playing = {
+        .uri       = "/stop",
+        .method    = HTTP_POST,
+        .handler   = stop_playing_post_handler,
+        .user_ctx  = server_data    // Pass server data as context
+    };
+    httpd_register_uri_handler(server, &stop_playing);
 
     return ESP_OK;
 }
