@@ -66,6 +66,7 @@ static esp_err_t favicon_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+
 /* Send HTTP response with a run-time generated html consisting of
  * a list of all files and folders under the requested path.
  * In case of SPIFFS this returns empty list when path is any
@@ -158,11 +159,23 @@ static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
     }
     closedir(dir);
 
+    size_t total = 0, used = 0;
+    esp_spiffs_info(NULL, &total, &used);
+    char fsinfo[32];
+    snprintf(fsinfo, sizeof(fsinfo),"%d/%d", used,total);
+    httpd_resp_sendstr_chunk(req, "<tr><td>Total</td><td>Filesystem</td><td>");
+    httpd_resp_sendstr_chunk(req, fsinfo);
+    httpd_resp_sendstr_chunk(req, "</td><td></td>");
+
+    httpd_resp_sendstr_chunk(req, "<td><form method=\"post\" action=\"/stop");
+    httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Stop</button></form></td>");
+
+
+    httpd_resp_sendstr_chunk(req, "<td> </td><td> </td></tr>\n");
+
     /* Finish the file list table */
     httpd_resp_sendstr_chunk(req, "</tbody></table>");
 
-    httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/stop");
-    httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Stop</button></form>");
 
 
     /* Send remaining chunk of HTML file to complete it */
@@ -170,6 +183,7 @@ static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
 
     /* Send empty chunk to signal HTTP response completion */
     httpd_resp_sendstr_chunk(req, NULL);
+
     return ESP_OK;
 }
 
@@ -221,6 +235,8 @@ static const char* get_path_from_uri(char *dest, const char *base_path, const ch
     /* Return pointer to path, skipping the base */
     return dest + base_pathlen;
 }
+
+
 
 /**
  * Handler Stop playing
@@ -502,7 +518,7 @@ static esp_err_t play_post_handler(httpd_req_t *req)
     if ( handle_play_midifile(filepath)) {
     	play_err();
         ESP_LOGE(TAG, "not a valid midi file : %s", filename);
-         /* Respond with 400 Bad Request */
+         // Respond with 400 Bad Request
          httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Not a valid MIDI-File");
          return ESP_FAIL;
     }

@@ -37,6 +37,12 @@ enum EVENT_STATE
 	c==has_end_of_track ? "'end of track'" : "???" \
 )
 
+// for better resolution: ticks multiplied by this factor
+#define TICKFACTOR 10
+
+// for calculate timing
+#define DELTATIMERMILLIES 10
+
 // structures
 // static midi-Data
 typedef struct  {
@@ -48,8 +54,8 @@ typedef struct  {
 
 // Midi data from file
 typedef struct midi_evt {
-	long evt_time;
-	long delta_time;
+	long evt_ticks;
+	long delta_ticks;
 	unsigned char event;
 	unsigned char metaevent;
 	int status;
@@ -66,7 +72,7 @@ typedef struct midi_track {
 	unsigned int buflen; // number of bytes in buffer
 	unsigned int rdpos; // read position on buffer
 	//
-	long track_time;
+	long track_ticks;
 	unsigned char lastevent; // in case of repeated events
 	int finished; // finished means: got end of track Event FF 21 00
 	t_midi_evt evt;
@@ -85,11 +91,9 @@ typedef struct {
 	long microsecsperquarter; // tempo
 	long microseconds_per_tick;
 	long song_ticks; // ticks from the beginning
-	long song_millies; // millies from the beginning
-	long quantization; // 8,16,32,64
 	// play parameter
 	long timermillies; // timerperiod in ms
-	long timerticks; // ticks per timer processing
+	long timer_ticks; // ticks per timer processing
 	int64_t starttime;
 	t_midi_track *tracks;
 } t_midi_song;
