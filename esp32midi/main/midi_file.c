@@ -581,9 +581,9 @@ static void periodic_midi_timer_callback(void* arg) {
 	if (n <= 0) {
 		// Schluss, Timer stoppen
 		ESP_ERROR_CHECK(esp_timer_stop(periodic_midi_timer));
-		initSongData();
 		int64_t time = esp_timer_get_time();
 		ESP_LOGI(TAG, "Periodic midi timer stopped, duration %lld ms", (time - globalSongData->starttime)/1000 );
+		initSongData();
 	}
 }
 
