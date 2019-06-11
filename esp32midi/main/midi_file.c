@@ -309,12 +309,11 @@ int open_midifile(const char *filepath) {
 		globalSongData->tpq = read_long(2, globalSongData->fd);
 
 		globalSongData->microsecsperquarter = 500000; // Tempo 120 = 500ms je 1/4 = 500 000 µs
-
-		globalSongData->song_ticks = -200; // delay until start playing
-
 		globalSongData->timermillies = 0;
 
 		calcTimermillies();
+
+		globalSongData->song_ticks = -200; // delay until start playing XXX
 
 		ESP_LOGI(TAG, "Midi-Format=%d, tracks=%d, tpq=%ld, timerticks=%ld, timermillies=%ld",
 				globalSongData->format, globalSongData->ntracks,
@@ -430,7 +429,7 @@ int parse_midifile(int printonly) {
 		return 1;
 	} if (globalSongData->song_ticks == 0 ) {
 		// playing the song will start
-		ESP_LOGI(TAG, "---- Start -----");
+		ESP_LOGI(TAG, "---- Start %s -----", globalSongData->filepath);
 	}
 	char *data=NULL;
 	char *ptr=NULL;
@@ -565,9 +564,9 @@ int parse_midifile(int printonly) {
 		}
 	} else {
 		ESP_LOGI(TAG,
-				"%6ld: end of song",
+				"%6ld: end of song %s",
 				//globalSongData->song_ticks * globalSongData->microseconds_per_tick / 1000,
-				globalSongData->song_ticks);
+				globalSongData->song_ticks, globalSongData->filepath);
 
 	}
 

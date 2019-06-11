@@ -87,4 +87,6 @@ void app_main()
 	play_ok();
 
     blue_off();
+
+    test_sntp();
 }

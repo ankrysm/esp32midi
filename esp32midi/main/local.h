@@ -122,5 +122,14 @@ int handle_stop_midifile();
 // Start Fileserver
 esp_err_t start_file_server(const char *base_path);
 
+// sntp
+void test_sntp();
+void obtain_time(void);
+void initialize_sntp(void);
+
+
+
+
+
 
 #endif /* ESP32MIDI_MAIN_LOCAL_H_ */
