@@ -25,12 +25,6 @@
 
 static const char *TAG = "sntp";
 
-/* Variable holding number of times ESP32 restarted since first boot.
- * It is placed into RTC memory using RTC_DATA_ATTR and
- * maintains its value when ESP32 wakes from deep sleep.
- */
-RTC_DATA_ATTR static int boot_count = 0;
-
 
 #ifdef CONFIG_SNTP_TIME_SYNC_METHOD_CUSTOM
 void sntp_sync_time(struct timeval *tv)
@@ -48,8 +42,6 @@ void time_sync_notification_cb(struct timeval *tv)
 
 void test_sntp()
 {
-    ++boot_count;
-    ESP_LOGI(TAG, "Boot count: %d", boot_count);
 
     time_t now;
     struct tm timeinfo;
@@ -99,34 +91,17 @@ void test_sntp()
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
     ESP_LOGI(TAG, "The current date/time in Shanghai is: %s", strftime_buf);
 
-    if (sntp_get_sync_mode() == SNTP_SYNC_MODE_SMOOTH) {
-        struct timeval outdelta;
-        while (sntp_get_sync_status() == SNTP_SYNC_STATUS_IN_PROGRESS) {
-            adjtime(NULL, &outdelta);
-            ESP_LOGI(TAG, "Waiting for adjusting time ... outdelta = %li sec: %li ms: %li us",
-                        outdelta.tv_sec,
-                        outdelta.tv_usec/1000,
-                        outdelta.tv_usec%1000);
-            vTaskDelay(2000 / portTICK_PERIOD_MS);
-        }
-    }
 
-    const int deep_sleep_sec = 10;
-    ESP_LOGI(TAG, "Entering deep sleep for %d seconds", deep_sleep_sec);
-    esp_deep_sleep(1000000LL * deep_sleep_sec);
-}
+    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
+    tzset();
+    localtime_r(&now, &timeinfo);
+    strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+    ESP_LOGI(TAG, "The current date/time in Berlin is: %s", strftime_buf);
+
+ }
 
 void obtain_time(void)
 {
-    ESP_ERROR_CHECK( nvs_flash_init() );
-    tcpip_adapter_init();
-    ESP_ERROR_CHECK( esp_event_loop_create_default() );
-
-    /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.
-     * Read "Establishing Wi-Fi or Ethernet Connection" section in
-     * examples/protocols/README.md for more information about this function.
-     */
-    ESP_ERROR_CHECK(example_connect());
 
     initialize_sntp();
 
@@ -142,7 +117,6 @@ void obtain_time(void)
     time(&now);
     localtime_r(&now, &timeinfo);
 
-    ESP_ERROR_CHECK( example_disconnect() );
 }
 
 void initialize_sntp(void)
