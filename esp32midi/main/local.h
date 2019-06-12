@@ -141,7 +141,7 @@ int parse_midifile();
 int handle_play_midifile(const char *filename);
 int handle_print_midifile(const char *filename);
 int handle_stop_midifile();
-int handle_play_random_midifile();
+int handle_play_random_midifile(const char *path);
 
 // Start Fileserver
 esp_err_t start_file_server(const char *base_path);

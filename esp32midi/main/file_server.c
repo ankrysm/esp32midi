@@ -164,18 +164,26 @@ static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
     size_t total = 0, used = 0;
     esp_spiffs_info(NULL, &total, &used);
     char fsinfo[32];
-    snprintf(fsinfo, sizeof(fsinfo),"%d/%d", used,total);
+    snprintf(fsinfo, sizeof(fsinfo),"%d / %d", used,total);
     httpd_resp_sendstr_chunk(req, "<tr><td>Total</td><td>Filesystem</td><td>");
     httpd_resp_sendstr_chunk(req, fsinfo);
     httpd_resp_sendstr_chunk(req, "</td><td></td><td><form method=\"post\" action=\"/stop\">");
     httpd_resp_sendstr_chunk(req, "<button type=\"submit\">Stop</button></form></td>");
+#ifdef WITH_PRINING_MIDIFILES
     httpd_resp_sendstr_chunk(req, "<td> </td><td> </td></tr>\n");
+#else
+    httpd_resp_sendstr_chunk(req, "</tr>\n");
+#endif
 
     // line with play random button
     httpd_resp_sendstr_chunk(req, "<tr><td></td><td></td><td>");
     httpd_resp_sendstr_chunk(req, "</td><td></td><td><form method=\"post\" action=\"/playrandom\">");
-    httpd_resp_sendstr_chunk(req, "<button type=\"submit\">Stop</button></form></td>");
+    httpd_resp_sendstr_chunk(req, "<button type=\"submit\">Play Random</button></form></td>");
+#ifdef WITH_PRINING_MIDIFILES
     httpd_resp_sendstr_chunk(req, "<td> </td><td> </td></tr>\n");
+#else
+    httpd_resp_sendstr_chunk(req, "</tr>\n");
+#endif
 
     /* Finish the file list table */
     httpd_resp_sendstr_chunk(req, "</tbody></table>");
@@ -245,7 +253,7 @@ static esp_err_t playrandom_post_handler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "Play something random %s",req->uri);
 
-    handle_play_random_midifile();
+    handle_play_random_midifile(((struct file_server_data *)req->user_ctx)->base_path);
 
     // Redirect onto root to see the file list
     httpd_resp_set_status(req, "303 See Other");
@@ -265,7 +273,7 @@ static esp_err_t stop_playing_post_handler(httpd_req_t *req)
 
     handle_stop_midifile();
 
-    /// Redirect onto root to see the file list
+    // Redirect onto root to see the file list
     httpd_resp_set_status(req, "303 See Other");
     httpd_resp_set_hdr(req, "Location", "/");
     httpd_resp_sendstr(req, "Stop playing successfully");
