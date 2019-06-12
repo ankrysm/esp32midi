@@ -313,7 +313,7 @@ int open_midifile(const char *filepath) {
 
 		calcTimermillies();
 
-		globalSongData->song_ticks = -200; // delay until start playing XXX
+		globalSongData->song_ticks = 0;
 
 		ESP_LOGI(TAG, "Midi-Format=%d, tracks=%d, tpq=%ld, timerticks=%ld, timermillies=%ld",
 				globalSongData->format, globalSongData->ntracks,
@@ -394,15 +394,6 @@ static void printEvent(int trackno, t_midi_evt *evt, const char *msg) {
 		}
 		snprintf(&txt[strlen(txt)], sizeof(txt) - strlen(txt), "%s","'");
 	}
-	/*
-	ESP_LOGI(TAG, "track %d, abs_ticks=%ld, DT=%ld(%ld ms), E=%x, M=%x, L=%d %s %s %s",
-			trackno,
-			evt->evt_time,
-			evt->delta_time, evt->delta_time * globalSongData->microseconds_per_tick /1000,
-			evt->event, evt->metaevent, evt->datalen,
-			evt->status != has_event ? EVENT_STATE2TXT(evt->status):"",
-			msg,
-			txt); */
 	ESP_LOGI(TAG, "track %d, T=%7ld, DT=%5ld, E=%x, M=%x, L=%d %s %s %s",
 			trackno,
 			evt->evt_ticks,
@@ -417,7 +408,7 @@ static void printEvent(int trackno, t_midi_evt *evt, const char *msg) {
 /**
  * single cycle of playing/printing midi events
  */
-int parse_midifile(int printonly) {
+int parse_midifile() {
 	if (!globalSongData || !globalSongData->tracks || !globalSongData->fd) {
 		ESP_LOGE(TAG, "parse_midifile: nodata / notracks or no open file");
 		return -1;
@@ -436,9 +427,10 @@ int parse_midifile(int printonly) {
 	size_t datalen = 0;
 	size_t sz_data=256;
 
-	//ESP_LOGI(TAG, "TIM %ld ms (%ld tks)",globalSongData->song_time*globalSongData->microseconds_per_tick/1000,globalSongData->song_time);
-	if ( printonly)
+#ifdef WITH_PRINING_MIDIFILES
+	if ( globalSongData->printonly)
 		ESP_LOGI(TAG, "---- %6ld -----",globalSongData->song_ticks);
+#endif
 
 	long min_deltatime=LONG_MAX;
 	int activeTracks=0;
@@ -459,7 +451,6 @@ int parse_midifile(int printonly) {
 				clearEvent(evt);
 				ESP_LOGI(TAG,
 						"%6ld: end of track %d",
-						//globalSongData->song_ticks * globalSongData->microseconds_per_tick / 1000,
 						globalSongData->song_ticks,
 						midi_track->trackno);
 				break; // with next track
@@ -499,17 +490,23 @@ int parse_midifile(int printonly) {
 							midi_track->trackno, tempo);
 					globalSongData->microsecsperquarter = tempo;
 					calcTimermillies();
-					if ( ! printonly ) {
+#ifdef WITH_PRINING_MIDIFILES
+					if ( ! globalSongData->printonly ) {
+#endif
 						// restart timer
 						esp_timer_stop(periodic_midi_timer);
 						ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, globalSongData->timermillies*1000));
+#ifdef WITH_PRINING_MIDIFILES
 					}
+#endif
 				}
 			} else if ( (evt->event & 0xF0) != 0xF0 ) {
 				// *** event to play
-				if ( printonly) {
+#ifdef WITH_PRINING_MIDIFILES
+				if ( globalSongData->printonly) {
 					printEvent( midi_track->trackno, evt, "play");
 				} else {
+#endif
 					//play
 					midi_out_evt(evt->event, evt->data, evt->datalen);
 					if ( ! ptr  ) {
@@ -525,11 +522,15 @@ int parse_midifile(int printonly) {
 					} else {
 						ESP_LOGE(TAG, "track %d: too many data needed %d, max %d", midi_track->trackno, new_datalen, sz_data);
 					}
-				}
+#ifdef WITH_PRINING_MIDIFILES
+ 				}
+#endif
 			} else {
-				if ( printonly) {
+#ifdef WITH_PRINING_MIDIFILES
+				if ( globalSongData->printonly) {
 					printEvent( midi_track->trackno, evt, "ignored");
 				}
+#endif
 			}
 
 			readNxtEvent(midi_track);
@@ -539,7 +540,6 @@ int parse_midifile(int printonly) {
 		if ( ! midi_track->finished) {
 			activeTracks++;
 		}
-
 	} // all tracks processed
 
 	// something to play?
@@ -549,23 +549,26 @@ int parse_midifile(int printonly) {
 	}
 
 	if ( activeTracks > 0) {
-		if ( printonly) {
+#ifdef WITH_PRINING_MIDIFILES
+		if ( globalSongData->printonly) {
 			if ( min_deltatime < 0) {
 				min_deltatime = 1;
 			}
 			globalSongData->song_ticks += min_deltatime;
 		} else {
+#endif
 			if ( globalSongData->timer_ticks == 0) {
 				ESP_LOGE(TAG, "NO TIMERTICKS");
 				return 0;
 
 			}
 			globalSongData->song_ticks += globalSongData->timer_ticks;
+#ifdef WITH_PRINING_MIDIFILES
 		}
+#endif
 	} else {
 		ESP_LOGI(TAG,
 				"%6ld: end of song %s",
-				//globalSongData->song_ticks * globalSongData->microseconds_per_tick / 1000,
 				globalSongData->song_ticks, globalSongData->filepath);
 
 	}
@@ -586,8 +589,7 @@ static void periodic_midi_timer_callback(void* arg) {
 	}
 }
 
-static int do_midifile(const char *filename, int playFlag) {
-
+int handle_play_midifile(const char *filename) {
 	int rc = -1;
 	do {
 		if (periodic_midi_timer) {
@@ -597,53 +599,69 @@ static int do_midifile(const char *filename, int playFlag) {
 		// initialize song-data
 		initSongData();
 
+#ifdef WITH_PRINING_MIDIFILES
+		globalSongData->printonly = false;
+#endif
+
 		if (open_midifile(filename)) break;
 
 		midi_reset();
 
-		if (playFlag) {
-			if (periodic_midi_timer == NULL) {
-				// timer muss erzeugt werden
-				const esp_timer_create_args_t periodic_timer_args = {
-						.callback =	&periodic_midi_timer_callback,
-						// name is optional, but may help identify the timer when debugging
-						.name = "periodic_midi"
-				};
+		globalSongData->song_ticks = -200; // delay until start playing XXX
 
-				ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_midi_timer));
-			} else {
-				// Timer stoppen, wenn er läuft
-				esp_timer_stop(periodic_midi_timer);
-			}
-			globalSongData->starttime = esp_timer_get_time();
-			ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, globalSongData->timermillies*1000));
-			ESP_LOGI(TAG, "playing midifile started");
-
-		} else {
-
-			//xTaskCreate(&print_midi_task, "print_midi_task", 2048, NULL, 5, NULL);
-
-			while (parse_midifile(true) > 0) {
-		        esp_task_wdt_reset();
+		if (periodic_midi_timer == NULL) {
+			// timer muss erzeugt werden
+			const esp_timer_create_args_t periodic_timer_args = {
+					.callback =	&periodic_midi_timer_callback,
+					// name is optional, but may help identify the timer when debugging
+					.name = "periodic_midi"
 			};
-			initSongData();
-			ESP_LOGI(TAG, "printing midifile end");
 
+			ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_midi_timer));
+		} else {
+			// Timer stoppen, wenn er läuft
+			esp_timer_stop(periodic_midi_timer);
 		}
+		globalSongData->starttime = esp_timer_get_time();
+		ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, globalSongData->timermillies*1000));
+		ESP_LOGI(TAG, "playing midifile started");
+
 		rc = 0;
 	} while(0);
 
 	return rc;
-
 }
 
-int handle_play_midifile(const char *filename) {
-	return do_midifile(filename, true);
-}
-
+#ifdef WITH_PRINING_MIDIFILES
 int handle_print_midifile(const char *filename) {
-	return do_midifile(filename, false);
+	int rc = -1;
+	do {
+		if (periodic_midi_timer) {
+			esp_timer_stop(periodic_midi_timer);
+		}
+
+		// initialize song-data
+		initSongData();
+
+		globalSongData->printonly = true;
+
+		if (open_midifile(filename)) break;
+
+		midi_reset();
+
+		while (parse_midifile(true) > 0) {
+			esp_task_wdt_reset();
+		}
+
+		initSongData();
+		ESP_LOGI(TAG, "printing midifile end");
+
+		rc = 0;
+	} while(0);
+
+	return rc;
 }
+#endif
 
 int handle_stop_midifile() {
 	if (periodic_midi_timer) {

@@ -21,6 +21,10 @@
 #define true 1
 #endif
 
+#ifndef SNTP_OPMODE_POLL
+#define SNTP_OPMODE_POLL 0
+#endif
+
 // end of happiness...
 
 #ifndef uchar
@@ -42,6 +46,8 @@ enum EVENT_STATE
 
 // for calculate timing
 #define DELTATIMERMILLIES 10
+
+//#define WITH_PRINING_MIDIFILES
 
 // structures
 // static midi-Data
@@ -94,6 +100,9 @@ typedef struct {
 	// play parameter
 	long timermillies; // timerperiod in ms
 	long timer_ticks; // ticks per timer processing
+#ifdef WITH_PRINING_MIDIFILES
+	int printonly;
+#endif
 	int64_t starttime;
 	t_midi_track *tracks;
 } t_midi_song;

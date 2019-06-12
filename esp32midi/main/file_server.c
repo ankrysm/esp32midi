@@ -105,11 +105,19 @@ static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
     httpd_resp_send_chunk(req, (const char *)upload_script_start, upload_script_size);
 
     /* Send file-list table definition and column labels */
+#ifdef WITH_PRINING_MIDIFILES
     httpd_resp_sendstr_chunk(req,
         "<table class=\"fixed\" border=\"1\">"
         "<col width=\"800px\" /><col width=\"300px\" /><col width=\"300px\" /><col width=\"100px\" />"
         "<thead><tr><th>Name</th><th>Type</th><th>Size (Bytes)</th><th>Delete</th><th>Play</th><th>Print</th></tr></thead>"
         "<tbody>");
+#else
+    httpd_resp_sendstr_chunk(req,
+        "<table class=\"fixed\" border=\"1\">"
+        "<col width=\"800px\" /><col width=\"300px\" /><col width=\"300px\" /><col width=\"100px\" />"
+        "<thead><tr><th>Name</th><th>Type</th><th>Size (Bytes)</th><th>Delete</th><th>Play</th></tr></thead>"
+        "<tbody>");
+#endif
 
     /* Iterate over all files / folders and fetch their names and sizes */
     while ((entry = readdir(dir)) != NULL) {
@@ -148,13 +156,13 @@ static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
         httpd_resp_sendstr_chunk(req, req->uri);
         httpd_resp_sendstr_chunk(req, entry->d_name);
         httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Play</button></form>");
-
+#ifdef WITH_PRINING_MIDIFILES
         httpd_resp_sendstr_chunk(req, "</td><td>");
         httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/print");
         httpd_resp_sendstr_chunk(req, req->uri);
         httpd_resp_sendstr_chunk(req, entry->d_name);
         httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Print</button></form>");
-
+#endif
         httpd_resp_sendstr_chunk(req, "</td></tr>\n");
     }
     closedir(dir);
@@ -530,6 +538,7 @@ static esp_err_t play_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+#ifdef WITH_PRINING_MIDIFILES
 /* Handler to play a midifile */
 static esp_err_t print_post_handler(httpd_req_t *req)
 {
@@ -576,7 +585,7 @@ static esp_err_t print_post_handler(httpd_req_t *req)
     httpd_resp_sendstr(req, "Printing successfully");
     return ESP_OK;
 }
-
+#endif
 /**
  *  Function to start the file server
  */
@@ -654,6 +663,7 @@ esp_err_t start_file_server(const char *base_path)
     };
     httpd_register_uri_handler(server, &file_play);
 
+#ifdef WITH_PRINING_MIDIFILES
     // URI handler for printing a midifile - serial monitor needed
      httpd_uri_t file_print = {
          .uri       = "/print/*",   // Match all URIs of type /delete/path/to/file
@@ -662,6 +672,7 @@ esp_err_t start_file_server(const char *base_path)
          .user_ctx  = server_data    // Pass server data as context
      };
      httpd_register_uri_handler(server, &file_print);
+#endif
 
     // URI handler for stop playing
     httpd_uri_t stop_playing = {
