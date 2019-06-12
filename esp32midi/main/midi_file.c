@@ -682,12 +682,13 @@ int handle_play_random_midifile() {
 
 	char entrypath[FILE_PATH_MAX];
 
-    DIR *dir = opendir(dirpath);
     const size_t dirpath_len = strlen(dirpath);
 
     struct dirent *entry;
     struct stat entry_stat;
 
+    int max =0;
+    DIR *dir = opendir(dirpath);
     if (!dir) {
         ESP_LOGE(TAG, "Failed to stat dir : %s", dirpath);
         return -1;
@@ -702,10 +703,44 @@ int handle_play_random_midifile() {
         }
         if (! IS_FILE_EXT(entrypath, ".midi")) {
     		ESP_LOGI(TAG, "%s is not a midifile", entrypath);
+    		continue;
         }
-		ESP_LOGI(TAG, "%s is a midifile", entrypath);
+		ESP_LOGI(TAG, "%d: %s is a midifile", ++max, entrypath);
 
     }
     closedir(dir);
+
+    int r = 1 + esp_random() % (max - 1);
+
+    ESP_LOGI(TAG, "random number is %d", r);
+
+    dir = opendir(dirpath);
+    if (!dir) {
+        ESP_LOGE(TAG, "Failed to stat dir : %s", dirpath);
+        return -1;
+    }
+    while ((entry = readdir(dir)) != NULL) {
+    	if (entry->d_type == DT_DIR)
+    		continue;
+        strlcpy(entrypath + dirpath_len, entry->d_name, sizeof(entrypath) - dirpath_len);
+        if (stat(entrypath, &entry_stat) == -1) {
+            ESP_LOGE(TAG, "Failed to stat %s", entry->d_name);
+            continue;
+        }
+        if (! IS_FILE_EXT(entrypath, ".midi")) {
+    		ESP_LOGI(TAG, "%s is not a midifile", entrypath);
+    		continue;
+        }
+        r--;
+		ESP_LOGI(TAG, "%d: %s is a midifile", r, entrypath);
+		if ( r > 0 ){
+			continue;
+		}
+		ESP_LOGI(TAG, "play %s", entrypath);
+
+    }
+    closedir(dir);
+
+
     return 0;
 }
