@@ -17,18 +17,9 @@
 #include "esp_err.h"
 #include "esp_log.h"
 
-#include "esp_vfs.h"
-#include "esp_spiffs.h"
 #include "esp_http_server.h"
 #include "local.h"
 
-/* Max length a file path can have on storage */
-#define FILE_PATH_MAX (ESP_VFS_PATH_MAX + CONFIG_SPIFFS_OBJ_NAME_LEN)
-
-/* Max size of an individual file. Make sure this
- * value is same as that set in upload_script.html */
-#define MAX_FILE_SIZE   (200*1024) // 200 KB
-#define MAX_FILE_SIZE_STR "200KB"
 
 /* Scratch buffer size */
 #define SCRATCH_BUFSIZE  8192
@@ -67,10 +58,12 @@ static esp_err_t favicon_get_handler(httpd_req_t *req)
 }
 
 
-/* Send HTTP response with a run-time generated html consisting of
+/**
+ * Send HTTP response with a run-time generated html consisting of
  * a list of all files and folders under the requested path.
  * In case of SPIFFS this returns empty list when path is any
- * string other than '/', since SPIFFS doesn't support directories */
+ * string other than '/', since SPIFFS doesn't support directories
+ */
 static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
 {
     char entrypath[FILE_PATH_MAX];
@@ -83,28 +76,28 @@ static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
     DIR *dir = opendir(dirpath);
     const size_t dirpath_len = strlen(dirpath);
 
-    /* Retrieve the base path of file storage to construct the full path */
+    // Retrieve the base path of file storage to construct the full path
     strlcpy(entrypath, dirpath, sizeof(entrypath));
 
     if (!dir) {
         ESP_LOGE(TAG, "Failed to stat dir : %s", dirpath);
-        /* Respond with 404 Not Found */
+        // Respond with 404 Not Found
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Directory does not exist");
         return ESP_FAIL;
     }
 
-    /* Send HTML file header */
+    // Send HTML file header
     httpd_resp_sendstr_chunk(req, "<!DOCTYPE html><html><body>");
 
-    /* Get handle to embedded file upload script */
+    // Get handle to embedded file upload script
     extern const unsigned char upload_script_start[] asm("_binary_upload_script_html_start");
     extern const unsigned char upload_script_end[]   asm("_binary_upload_script_html_end");
     const size_t upload_script_size = (upload_script_end - upload_script_start);
 
-    /* Add file upload form and script which on execution sends a POST request to /upload */
+    // Add file upload form and script which on execution sends a POST request to /upload
     httpd_resp_send_chunk(req, (const char *)upload_script_start, upload_script_size);
 
-    /* Send file-list table definition and column labels */
+    // Send file-list table definition and column labels
 #ifdef WITH_PRINING_MIDIFILES
     httpd_resp_sendstr_chunk(req,
         "<table class=\"fixed\" border=\"1\">"
@@ -119,7 +112,7 @@ static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
         "<tbody>");
 #endif
 
-    /* Iterate over all files / folders and fetch their names and sizes */
+    // Iterate over all files / folders and fetch their names and sizes
     while ((entry = readdir(dir)) != NULL) {
         entrytype = (entry->d_type == DT_DIR ? "directory" : "file");
 
@@ -167,18 +160,21 @@ static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
     }
     closedir(dir);
 
+    // Line with file system info and stopm button
     size_t total = 0, used = 0;
     esp_spiffs_info(NULL, &total, &used);
     char fsinfo[32];
     snprintf(fsinfo, sizeof(fsinfo),"%d/%d", used,total);
     httpd_resp_sendstr_chunk(req, "<tr><td>Total</td><td>Filesystem</td><td>");
     httpd_resp_sendstr_chunk(req, fsinfo);
-    httpd_resp_sendstr_chunk(req, "</td><td></td>");
+    httpd_resp_sendstr_chunk(req, "</td><td></td><td><form method=\"post\" action=\"/stop\">");
+    httpd_resp_sendstr_chunk(req, "<button type=\"submit\">Stop</button></form></td>");
+    httpd_resp_sendstr_chunk(req, "<td> </td><td> </td></tr>\n");
 
-    httpd_resp_sendstr_chunk(req, "<td><form method=\"post\" action=\"/stop");
-    httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Stop</button></form></td>");
-
-
+    // line with play random button
+    httpd_resp_sendstr_chunk(req, "<tr><td></td><td></td><td>");
+    httpd_resp_sendstr_chunk(req, "</td><td></td><td><form method=\"post\" action=\"/playrandom\">");
+    httpd_resp_sendstr_chunk(req, "<button type=\"submit\">Stop</button></form></td>");
     httpd_resp_sendstr_chunk(req, "<td> </td><td> </td></tr>\n");
 
     /* Finish the file list table */
@@ -195,8 +191,6 @@ static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
     return ESP_OK;
 }
 
-#define IS_FILE_EXT(filename, ext) \
-    (strcasecmp(&filename[strlen(filename) - sizeof(ext) + 1], ext) == 0)
 
 /* Set HTTP response content type according to file extension */
 static esp_err_t set_content_type_from_file(httpd_req_t *req, const char *filename)
@@ -244,6 +238,22 @@ static const char* get_path_from_uri(char *dest, const char *base_path, const ch
     return dest + base_pathlen;
 }
 
+/**
+ * plarandom
+ */
+static esp_err_t playrandom_post_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Play something random %s",req->uri);
+
+    handle_play_random_midifile();
+
+    // Redirect onto root to see the file list
+    httpd_resp_set_status(req, "303 See Other");
+    httpd_resp_set_hdr(req, "Location", "/");
+    httpd_resp_sendstr(req, "Start play random successfully");
+
+    return ESP_OK;
+}
 
 
 /**
@@ -255,7 +265,7 @@ static esp_err_t stop_playing_post_handler(httpd_req_t *req)
 
     handle_stop_midifile();
 
-    /* Redirect onto root to see the file list */
+    /// Redirect onto root to see the file list
     httpd_resp_set_status(req, "303 See Other");
     httpd_resp_set_hdr(req, "Location", "/");
     httpd_resp_sendstr(req, "Stop playing successfully");
@@ -263,7 +273,9 @@ static esp_err_t stop_playing_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* Handler to download a file kept on the server */
+/**
+ *  Handler to download a file kept on the server
+ */
 static esp_err_t download_get_handler(httpd_req_t *req)
 {
     char filepath[FILE_PATH_MAX];
@@ -279,14 +291,14 @@ static esp_err_t download_get_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    /* If name has trailing '/', respond with directory contents */
+    // If name has trailing '/', respond with directory contents
     if (filename[strlen(filename) - 1] == '/') {
         return http_resp_dir_html(req, filepath);
     }
 
     if (stat(filepath, &file_stat) == -1) {
-        /* If file not present on SPIFFS check if URI
-         * corresponds to one of the hardcoded paths */
+        // If file not present on SPIFFS check if URI
+        // corresponds to one of the hardcoded paths
         if (strcmp(filename, "/index.html") == 0) {
             return index_html_get_handler(req);
         } else if (strcmp(filename, "/favicon.ico") == 0) {
@@ -301,7 +313,7 @@ static esp_err_t download_get_handler(httpd_req_t *req)
     fd = fopen(filepath, "r");
     if (!fd) {
         ESP_LOGE(TAG, "Failed to read existing file : %s", filepath);
-        /* Respond with 500 Internal Server Error */
+        // Respond with 500 Internal Server Error
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read existing file");
         return ESP_FAIL;
     }
@@ -309,54 +321,56 @@ static esp_err_t download_get_handler(httpd_req_t *req)
     ESP_LOGI(TAG, "Sending file : %s (%ld bytes)...", filename, file_stat.st_size);
     set_content_type_from_file(req, filename);
 
-    /* Retrieve the pointer to scratch buffer for temporary storage */
+    // Retrieve the pointer to scratch buffer for temporary storage
     char *chunk = ((struct file_server_data *)req->user_ctx)->scratch;
     size_t chunksize;
     do {
-        /* Read file in chunks into the scratch buffer */
+        // Read file in chunks into the scratch buffer
         chunksize = fread(chunk, 1, SCRATCH_BUFSIZE, fd);
 
-        /* Send the buffer contents as HTTP response chunk */
+        // Send the buffer contents as HTTP response chunk
         if (httpd_resp_send_chunk(req, chunk, chunksize) != ESP_OK) {
             fclose(fd);
             ESP_LOGE(TAG, "File sending failed!");
-            /* Abort sending file */
+            // Abort sending file
             httpd_resp_sendstr_chunk(req, NULL);
-            /* Respond with 500 Internal Server Error */
+            // Respond with 500 Internal Server Error
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to send file");
             return ESP_FAIL;
         }
 
-        /* Keep looping till the whole file is sent */
+        // Keep looping till the whole file is sent
     } while (chunksize != 0);
 
-    /* Close file after sending complete */
+    // Close file after sending complete
     fclose(fd);
     ESP_LOGI(TAG, "File sending complete");
 
-    /* Respond with an empty chunk to signal HTTP response completion */
+    // Respond with an empty chunk to signal HTTP response completion
     httpd_resp_send_chunk(req, NULL, 0);
     return ESP_OK;
 }
 
-/* Handler to upload a file onto the server */
+/**
+ *  Handler to upload a file onto the server
+ */
 static esp_err_t upload_post_handler(httpd_req_t *req)
 {
     char filepath[FILE_PATH_MAX];
     FILE *fd = NULL;
     struct stat file_stat;
 
-    /* Skip leading "/upload" from URI to get filename */
-    /* Note sizeof() counts NULL termination hence the -1 */
+    // Skip leading "/upload" from URI to get filename
+    // Note sizeof() counts NULL termination hence the -1
     const char *filename = get_path_from_uri(filepath, ((struct file_server_data *)req->user_ctx)->base_path,
                                              req->uri + sizeof("/upload") - 1, sizeof(filepath));
     if (!filename) {
-        /* Respond with 500 Internal Server Error */
+        // Respond with 500 Internal Server Error
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Filename too long");
         return ESP_FAIL;
     }
 
-    /* Filename cannot have a trailing '/' */
+    // Filename cannot have a trailing '/'
     if (filename[strlen(filename) - 1] == '/') {
         ESP_LOGE(TAG, "Invalid filename : %s", filename);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Invalid filename");
@@ -370,15 +384,15 @@ static esp_err_t upload_post_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    /* File cannot be larger than a limit */
+    // File cannot be larger than a limit
     if (req->content_len > MAX_FILE_SIZE) {
         ESP_LOGE(TAG, "File too large : %d bytes", req->content_len);
-        /* Respond with 400 Bad Request */
+        // Respond with 400 Bad Request
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
                             "File size must be less than "
                             MAX_FILE_SIZE_STR "!");
-        /* Return failure to close underlying connection else the
-         * incoming file content will keep the socket busy */
+        // Return failure to close underlying connection else the
+        // incoming file content will keep the socket busy
         return ESP_FAIL;
     }
 
@@ -392,39 +406,39 @@ static esp_err_t upload_post_handler(httpd_req_t *req)
 
     ESP_LOGI(TAG, "Receiving file : %s...", filename);
 
-    /* Retrieve the pointer to scratch buffer for temporary storage */
+    // Retrieve the pointer to scratch buffer for temporary storage
     char *buf = ((struct file_server_data *)req->user_ctx)->scratch;
     int received;
 
-    /* Content length of the request gives
-     * the size of the file being uploaded */
+    // Content length of the request gives
+    // the size of the file being uploaded
     int remaining = req->content_len;
 
     while (remaining > 0) {
 
         ESP_LOGI(TAG, "Remaining size : %d", remaining);
-        /* Receive the file part by part into a buffer */
+        // Receive the file part by part into a buffer
         if ((received = httpd_req_recv(req, buf, MIN(remaining, SCRATCH_BUFSIZE))) <= 0) {
             if (received == HTTPD_SOCK_ERR_TIMEOUT) {
-                /* Retry if timeout occurred */
+                // Retry if timeout occurred
                 continue;
             }
 
-            /* In case of unrecoverable error,
-             * close and delete the unfinished file*/
+            // In case of unrecoverable error,
+            // close and delete the unfinished file
             fclose(fd);
             unlink(filepath);
 
             ESP_LOGE(TAG, "File reception failed!");
-            /* Respond with 500 Internal Server Error */
+            // Respond with 500 Internal Server Error
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file");
             return ESP_FAIL;
         }
 
-        /* Write buffer content to file on storage */
+        // Write buffer content to file on storage
         if (received && (received != fwrite(buf, 1, received, fd))) {
-            /* Couldn't write everything to file!
-             * Storage may be full? */
+            //Couldn't write everything to file!
+            // Storage may be full?
             fclose(fd);
             unlink(filepath);
 
@@ -434,39 +448,44 @@ static esp_err_t upload_post_handler(httpd_req_t *req)
             return ESP_FAIL;
         }
 
-        /* Keep track of remaining size of
-         * the file left to be uploaded */
+        // Keep track of remaining size of
+        // the file left to be uploaded
         remaining -= received;
     }
 
-    /* Close file upon upload completion */
+    // Close file upon upload completion
     fclose(fd);
     ESP_LOGI(TAG, "File reception complete");
 
-    /* Redirect onto root to see the updated file list */
+    // Redirect onto root to see the updated file list
     httpd_resp_set_status(req, "303 See Other");
     httpd_resp_set_hdr(req, "Location", "/");
     httpd_resp_sendstr(req, "File uploaded successfully");
     return ESP_OK;
 }
 
-/* Handler to delete a file from the server */
+/**
+ *  Handler to delete a file from the server
+ */
 static esp_err_t delete_post_handler(httpd_req_t *req)
 {
     char filepath[FILE_PATH_MAX];
     struct stat file_stat;
 
-    /* Skip leading "/delete" from URI to get filename */
-    /* Note sizeof() counts NULL termination hence the -1 */
-    const char *filename = get_path_from_uri(filepath, ((struct file_server_data *)req->user_ctx)->base_path,
-                                             req->uri  + sizeof("/delete") - 1, sizeof(filepath));
+    // Skip leading "/delete" from URI to get filename */
+    // Note sizeof() counts NULL termination hence the -1
+    const char *filename = get_path_from_uri(
+    		filepath,
+			((struct file_server_data *)req->user_ctx)->base_path,
+			req->uri + sizeof("/delete") - 1,
+			sizeof(filepath));
     if (!filename) {
-        /* Respond with 500 Internal Server Error */
+        // Respond with 500 Internal Server Error
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Filename too long");
         return ESP_FAIL;
     }
 
-    /* Filename cannot have a trailing '/' */
+    // Filename cannot have a trailing '/'
     if (filename[strlen(filename) - 1] == '/') {
         ESP_LOGE(TAG, "Invalid filename : %s", filename);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Invalid filename");
@@ -475,39 +494,44 @@ static esp_err_t delete_post_handler(httpd_req_t *req)
 
     if (stat(filepath, &file_stat) == -1) {
         ESP_LOGE(TAG, "File does not exist : %s", filename);
-        /* Respond with 400 Bad Request */
+        // Respond with 400 Bad Request
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "File does not exist");
         return ESP_FAIL;
     }
 
     ESP_LOGI(TAG, "Deleting file : %s", filename);
-    /* Delete file */
+    // Delete file
     unlink(filepath);
 
-    /* Redirect onto root to see the updated file list */
+    // Redirect onto root to see the updated file list
     httpd_resp_set_status(req, "303 See Other");
     httpd_resp_set_hdr(req, "Location", "/");
     httpd_resp_sendstr(req, "File deleted successfully");
     return ESP_OK;
 }
 
-/* Handler to play a midifile */
+/**
+ *  Handler to play a midifile
+ */
 static esp_err_t play_post_handler(httpd_req_t *req)
 {
     char filepath[FILE_PATH_MAX];
     struct stat file_stat;
 
-    /* Skip leading "/play" from URI to get filename */
-    /* Note sizeof() counts NULL termination hence the -1 */
-    const char *filename = get_path_from_uri(filepath, ((struct file_server_data *)req->user_ctx)->base_path,
-                                             req->uri  + sizeof("/play") - 1, sizeof(filepath));
+    // Skip leading "/play" from URI to get filename
+    // Note sizeof() counts NULL termination hence the -1
+    const char *filename = get_path_from_uri(
+    		filepath,
+			((struct file_server_data *)req->user_ctx)->base_path,
+			req->uri + sizeof("/play") - 1,
+			sizeof(filepath));
     if (!filename) {
-        /* Respond with 500 Internal Server Error */
+        // Respond with 500 Internal Server Error
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Filename too long");
         return ESP_FAIL;
     }
 
-    /* Filename cannot have a trailing '/' */
+    // Filename cannot have a trailing '/'
     if (filename[strlen(filename) - 1] == '/') {
         ESP_LOGE(TAG, "Invalid filename : %s", filename);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Invalid filename");
@@ -516,7 +540,7 @@ static esp_err_t play_post_handler(httpd_req_t *req)
 
     if (stat(filepath, &file_stat) == -1) {
         ESP_LOGE(TAG, "File does not exist : %s", filename);
-        /* Respond with 400 Bad Request */
+        // Respond with 400 Bad Request
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "File does not exist");
         return ESP_FAIL;
     }
@@ -531,7 +555,7 @@ static esp_err_t play_post_handler(httpd_req_t *req)
          return ESP_FAIL;
     }
 
-    /* Redirect onto root to see the updated file list */
+    // Redirect onto root to see the updated file list
     httpd_resp_set_status(req, "303 See Other");
     httpd_resp_set_hdr(req, "Location", "/");
     httpd_resp_sendstr(req, "Start play successfully");
@@ -539,7 +563,9 @@ static esp_err_t play_post_handler(httpd_req_t *req)
 }
 
 #ifdef WITH_PRINING_MIDIFILES
-/* Handler to play a midifile */
+/**
+ *  Handler to play a midifile
+ */
 static esp_err_t print_post_handler(httpd_req_t *req)
 {
     char filepath[FILE_PATH_MAX];
@@ -564,7 +590,7 @@ static esp_err_t print_post_handler(httpd_req_t *req)
 
     if (stat(filepath, &file_stat) == -1) {
         ESP_LOGE(TAG, "File does not exist : %s", filename);
-        /* Respond with 400 Bad Request */
+        // Respond with 400 Bad Request
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "File does not exist");
         return ESP_FAIL;
     }
@@ -574,18 +600,19 @@ static esp_err_t print_post_handler(httpd_req_t *req)
     if ( handle_print_midifile(filepath)) {
     	play_err();
         ESP_LOGE(TAG, "not a valid midi file : %s", filename);
-         /* Respond with 400 Bad Request */
+         // Respond with 400 Bad Request
          httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Not a valid MIDI-File");
          return ESP_FAIL;
     }
 
-    /* Redirect onto root to see the updated file list */
+    // Redirect onto root to see the updated file list
     httpd_resp_set_status(req, "303 See Other");
     httpd_resp_set_hdr(req, "Location", "/");
     httpd_resp_sendstr(req, "Printing successfully");
     return ESP_OK;
 }
 #endif
+
 /**
  *  Function to start the file server
  */
@@ -593,7 +620,7 @@ esp_err_t start_file_server(const char *base_path)
 {
     static struct file_server_data *server_data = NULL;
 
-    /* Validate file storage base path */
+    // Validate file storage base path
     if (!base_path || strcmp(base_path, "/spiffs") != 0) {
         ESP_LOGE(TAG, "File server presently supports only '/spiffs' as base path");
         return ESP_ERR_INVALID_ARG;
@@ -604,7 +631,7 @@ esp_err_t start_file_server(const char *base_path)
         return ESP_ERR_INVALID_STATE;
     }
 
-    /* Allocate memory for server data */
+    // Allocate memory for server data
     server_data = calloc(1, sizeof(struct file_server_data));
     if (!server_data) {
         ESP_LOGE(TAG, "Failed to allocate memory for server data");
@@ -616,9 +643,9 @@ esp_err_t start_file_server(const char *base_path)
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 
-    /* Use the URI wildcard matching function in order to
-     * allow the same handler to respond to multiple different
-     * target URIs which match the wildcard scheme */
+    // Use the URI wildcard matching function in order to
+    // allow the same handler to respond to multiple different
+    // target URIs which match the wildcard scheme
     config.uri_match_fn = httpd_uri_match_wildcard;
 
     ESP_LOGI(TAG, "Starting HTTP Server");
@@ -682,6 +709,15 @@ esp_err_t start_file_server(const char *base_path)
         .user_ctx  = server_data    // Pass server data as context
     };
     httpd_register_uri_handler(server, &stop_playing);
+
+    // URI handler for playing random
+    httpd_uri_t playrandom = {
+        .uri       = "/playrandom",
+        .method    = HTTP_POST,
+        .handler   = playrandom_post_handler,
+        .user_ctx  = server_data    // Pass server data as context
+    };
+    httpd_register_uri_handler(server, &playrandom);
 
     return ESP_OK;
 }

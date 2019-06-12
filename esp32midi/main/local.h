@@ -8,6 +8,9 @@
 #ifndef ESP32MIDI_MAIN_LOCAL_H_
 #define ESP32MIDI_MAIN_LOCAL_H_
 
+#include "esp_vfs.h"
+#include "esp_spiffs.h"
+
 // to make eclipse happy:
 #ifndef size_t
 #define size_t unsigned int
@@ -46,6 +49,17 @@ enum EVENT_STATE
 
 // for calculate timing
 #define DELTATIMERMILLIES 10
+
+// Max length a file path can have on storage
+#define FILE_PATH_MAX (ESP_VFS_PATH_MAX + CONFIG_SPIFFS_OBJ_NAME_LEN)
+
+// Max size of an individual file. Make sure this
+// value is same as that set in upload_script.html
+#define MAX_FILE_SIZE   (200*1024) // 200 KB
+#define MAX_FILE_SIZE_STR "200KB"
+
+#define IS_FILE_EXT(filename, ext) \
+    (strcasecmp(&filename[strlen(filename) - sizeof(ext) + 1], ext) == 0)
 
 //#define WITH_PRINING_MIDIFILES
 
@@ -127,6 +141,7 @@ int parse_midifile();
 int handle_play_midifile(const char *filename);
 int handle_print_midifile(const char *filename);
 int handle_stop_midifile();
+int handle_play_random_midifile();
 
 // Start Fileserver
 esp_err_t start_file_server(const char *base_path);

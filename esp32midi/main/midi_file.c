@@ -11,6 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <sys/stat.h>
+#include <dirent.h>
 
 #include "driver/uart.h"
 #include "driver/gpio.h"
@@ -674,4 +675,37 @@ int handle_stop_midifile() {
 	midi_reset();
 	return 0;
 
+}
+
+int handle_play_random_midifile() {
+	char dirpath[]="/";
+
+	char entrypath[FILE_PATH_MAX];
+
+    DIR *dir = opendir(dirpath);
+    const size_t dirpath_len = strlen(dirpath);
+
+    struct dirent *entry;
+    struct stat entry_stat;
+
+    if (!dir) {
+        ESP_LOGE(TAG, "Failed to stat dir : %s", dirpath);
+        return -1;
+    }
+    while ((entry = readdir(dir)) != NULL) {
+    	if (entry->d_type == DT_DIR)
+    		continue;
+        strlcpy(entrypath + dirpath_len, entry->d_name, sizeof(entrypath) - dirpath_len);
+        if (stat(entrypath, &entry_stat) == -1) {
+            ESP_LOGE(TAG, "Failed to stat %s", entry->d_name);
+            continue;
+        }
+        if (! IS_FILE_EXT(entrypath, ".midi")) {
+    		ESP_LOGI(TAG, "%s is not a midifile", entrypath);
+        }
+		ESP_LOGI(TAG, "%s is a midifile", entrypath);
+
+    }
+    closedir(dir);
+    return 0;
 }
