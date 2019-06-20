@@ -7,23 +7,13 @@
    CONDITIONS OF ANY KIND, either express or implied.
 */
 
-#include <sys/param.h>
-
-#include "esp_wifi.h"
-#include "esp_event_loop.h"
-#include "esp_log.h"
-#include "esp_system.h"
-#include "esp_spiffs.h"
-#include "nvs_flash.h"
-#include "tcpip_adapter.h"
-#include "protocol_examples_common.h"
 #include "local.h"
 
 /* This example demonstrates how to create file server
  * using esp_http_server. This file has only startup code.
  * Look in file_server.c for the implementation */
 
-static const char *TAG="example";
+static const char *TAG="main";
 
 /* Function to initialize SPIFFS */
 static esp_err_t init_spiffs(void)
@@ -63,6 +53,7 @@ static esp_err_t init_spiffs(void)
 
 void app_main()
 {
+	init_gpio();
 	midi_init();
 	led_init();
 

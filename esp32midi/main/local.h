@@ -8,8 +8,41 @@
 #ifndef ESP32MIDI_MAIN_LOCAL_H_
 #define ESP32MIDI_MAIN_LOCAL_H_
 
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+#include <sys/param.h>
+#include <sys/unistd.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <time.h>
+#include <sys/time.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+
+#include "driver/uart.h"
+#include "driver/gpio.h"
+#include "esp_task_wdt.h"
+#include "esp_timer.h"
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "esp_event_loop.h"
+#include "esp_err.h"
+#include "esp_log.h"
+#include "esp_system.h"
 #include "esp_vfs.h"
 #include "esp_spiffs.h"
+#include "esp_attr.h"
+#include "esp_sleep.h"
+#include "esp_sntp.h"
+#include "nvs_flash.h"
+#include "tcpip_adapter.h"
+#include "protocol_examples_common.h"
+#include "esp_http_server.h"
+
+
 
 // to make eclipse happy:
 #ifndef size_t
@@ -26,6 +59,14 @@
 
 #ifndef SNTP_OPMODE_POLL
 #define SNTP_OPMODE_POLL 0
+#endif
+
+#ifndef SNTP_SYNC_STATUS_RESET
+#define SNTP_SYNC_STATUS_RESET 0
+#endif
+
+#ifndef GPIO_PIN_INTR_POSEDGE
+#define GPIO_PIN_INTR_POSEDGE 1
 #endif
 
 // end of happiness...
@@ -122,6 +163,9 @@ typedef struct {
 } t_midi_song;
 
 // Prototypes
+// gpio.c
+void init_gpio();
+
 // GPIO/LED
 void led_init();
 void blue_on();

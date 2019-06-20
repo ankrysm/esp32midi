@@ -5,11 +5,6 @@
  *      Author: ankrysm
  */
 
-#include <stdio.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "driver/gpio.h"
-#include "sdkconfig.h"
 #include "local.h"
 
 #define BLUE_GPIO 2

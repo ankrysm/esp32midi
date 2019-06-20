@@ -5,19 +5,6 @@
  *      Author: akrysmanski
  */
 
-#include <stdio.h>
-#include <string.h>
-#include <ctype.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include <sys/stat.h>
-#include <dirent.h>
-
-#include "driver/uart.h"
-#include "driver/gpio.h"
-#include "esp_task_wdt.h"
-#include "esp_timer.h"
-#include "esp_log.h"
 #include "local.h"
 
 static const char *TAG = "midi_file";
@@ -679,7 +666,7 @@ int handle_stop_midifile() {
 
 int handle_play_random_midifile(const char *dirpath) {
 
-	char entrypath[FILE_PATH_MAX];
+	char entrypath[256+1];
 
     struct dirent *entry;
     struct stat entry_stat;
