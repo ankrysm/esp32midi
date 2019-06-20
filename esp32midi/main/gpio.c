@@ -21,18 +21,18 @@ static xQueueHandle gpio_evt_queue = NULL;
 static void IRAM_ATTR gpio_isr_handler(void* arg)
 {
     uint32_t gpio_num = (uint32_t) arg;
-    int32_t val = gpio_get_level(gpio_num);
-    xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
+    int32_t val = gpio_get_level(gpio_num) > 0 ? gpio_num : -gpio_num;
+    xQueueSendFromISR(gpio_evt_queue, &val, NULL);
 }
 
 static void gpio_task_example(void* arg)
 {
-    uint32_t io_num;
+    int32_t io_num;
     ESP_LOGI(TAG, "Start gpio_task_example");
 
     for(;;) {
         if(xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
-        	ESP_LOGI(TAG, "GPIO[%d] intr, val: %d\n", io_num, gpio_get_level(io_num));
+        	ESP_LOGI(TAG, "GPIO val: %d", io_num);
         }
     }
 }
@@ -43,7 +43,7 @@ void init_gpio() {
     gpio_config_t io_conf;
 
     //interrupt of rising edge
-    io_conf.intr_type = GPIO_PIN_INTR_POSEDGE;
+    io_conf.intr_type = GPIO_INTR_NEGEDGE; //GPIO_INTR_ANYEDGE; //GPIO_PIN_INTR_POSEDGE;
     //bit mask of the pins, use GPIO4/5 here
     io_conf.pin_bit_mask = GPIO_INPUT_PIN_SEL;
     //set as input mode
