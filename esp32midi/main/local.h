@@ -98,10 +98,12 @@ enum EVENT_STATE
 // value is same as that set in upload_script.html
 #define MAX_FILE_SIZE   (200*1024) // 200 KB
 #define MAX_FILE_SIZE_STR "200KB"
+#define BASE_PATH "/spiffs"
 
 #define IS_FILE_EXT(filename, ext) \
     (strcasecmp(&filename[strlen(filename) - sizeof(ext) + 1], ext) == 0)
 
+#define DELAY_MILLIES 2000 // 2 secs
 //#define WITH_PRINING_MIDIFILES
 
 // structures
@@ -155,6 +157,8 @@ typedef struct {
 	// play parameter
 	long timermillies; // timerperiod in ms
 	long timer_ticks; // ticks per timer processing
+	int blink_cnt;
+	int is_on;
 #ifdef WITH_PRINING_MIDIFILES
 	int printonly;
 #endif
@@ -182,10 +186,10 @@ void midi_reset();
 // MIDI file
 int open_midifile(const char *filename);
 int parse_midifile();
-int handle_play_midifile(const char *filename);
+int handle_play_midifile(const char *filename, int with_delay);
 int handle_print_midifile(const char *filename);
 int handle_stop_midifile();
-int handle_play_random_midifile(const char *path);
+int handle_play_random_midifile(const char *path, int with_delay );
 
 // Start Fileserver
 esp_err_t start_file_server(const char *base_path);

@@ -20,7 +20,7 @@
 #define MIDI_RTS  (UART_PIN_NO_CHANGE)
 #define MIDI_CTS  (UART_PIN_NO_CHANGE)
 
-static const char* TAG = "midi";
+// static const char* TAG = "midi";
 
 #define BUF_SIZE (1024)
 
@@ -96,23 +96,21 @@ void midi_init() {
 
 static void periodic_timer_callback(void* arg)
 {
-	int64_t time_since_boot = esp_timer_get_time();
+	//int64_t time_since_boot = esp_timer_get_time();
 
 	t_midi_data *evt = &(data[pos]);
 	int l = evt->datalen;
 
-	ESP_LOGI(TAG,
-			"Periodic timer called, time since boot: %lld us, pos=%d l=%d",
-			time_since_boot, pos, l);
+	//ESP_LOGI(TAG, "Periodic timer called, time since boot: %lld us, pos=%d l=%d", time_since_boot, pos, l);
 	if (l < 0) {
 		// Schluss, Timer stoppen
 		ESP_ERROR_CHECK(esp_timer_stop(periodic_timer));
-		ESP_LOGI(TAG, "Periodic timer stopped");
+		//ESP_LOGI(TAG, "Periodic timer stopped");
 		return;
 	} else if (l > 0) {
 		midi_out(evt->data, l);
 	} else {
-		ESP_LOGI(TAG, "Pause");
+		//ESP_LOGI(TAG, "Pause");
 	}
 	pos++;
 

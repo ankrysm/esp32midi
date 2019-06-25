@@ -242,7 +242,8 @@ static esp_err_t playrandom_post_handler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "Play something random %s",req->uri);
 
-    handle_play_random_midifile(((struct file_server_data *)req->user_ctx)->base_path);
+    // play with delay
+    handle_play_random_midifile(((struct file_server_data *)req->user_ctx)->base_path, 1 );
 
     // Redirect onto root to see the file list
     httpd_resp_set_status(req, "303 See Other");
@@ -544,7 +545,8 @@ static esp_err_t play_post_handler(httpd_req_t *req)
 
     ESP_LOGI(TAG, "play file : %s at %s", filename, filepath);
 
-    if ( handle_play_midifile(filepath)) {
+    // play with delay
+    if ( handle_play_midifile(filepath, 1)) {
     	play_err();
         ESP_LOGE(TAG, "not a valid midi file : %s", filename);
          // Respond with 400 Bad Request
@@ -618,8 +620,8 @@ esp_err_t start_file_server(const char *base_path)
     static struct file_server_data *server_data = NULL;
 
     // Validate file storage base path
-    if (!base_path || strcmp(base_path, "/spiffs") != 0) {
-        ESP_LOGE(TAG, "File server presently supports only '/spiffs' as base path");
+    if (!base_path || strcmp(base_path, BASE_PATH) != 0) {
+        ESP_LOGE(TAG, "File server presently supports only '"BASE_PATH"' as base path");
         return ESP_ERR_INVALID_ARG;
     }
 
