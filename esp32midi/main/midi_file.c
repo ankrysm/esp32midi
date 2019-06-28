@@ -702,7 +702,7 @@ int handle_play_random_midifile(const char *dirpath, int with_delay) {
     }
     closedir(dir);
 
-    int r = 1 + esp_random() % (max - 1);
+    int r = 1 + esp_random() % (max - 1); // is not really an random value
 
     ESP_LOGI(TAG, "handle_play_random_midifile: random number is %d/%d", r, max);
 
