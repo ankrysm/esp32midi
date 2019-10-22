@@ -23,7 +23,7 @@ Read the instructions at `https://github.com/espressif/esp-idf/blob/master/docs/
 
 * Install python - with brew (homebrew):
     * brew install python
-    * in case ofa link error:
+    * in case of a link error:
         * `sudo mkdir /usr/local/Frameworks`
         * `sudo chown $(whoami):admin /usr/local/Frameworks`
         * `brew link python`

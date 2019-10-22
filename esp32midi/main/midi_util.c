@@ -20,7 +20,7 @@
 #define MIDI_RTS  (UART_PIN_NO_CHANGE)
 #define MIDI_CTS  (UART_PIN_NO_CHANGE)
 
-// static const char* TAG = "midi";
+static const char* TAG = "midi_util";
 
 #define BUF_SIZE (1024)
 
@@ -75,6 +75,38 @@ void midi_reset() {
     free(init_sequenz);
 
 }
+
+
+void send_nrpn(unsigned int message, unsigned int val) {
+	/*
+	 * using the 0xB0 Control Change command a NRPN-Message is transmitted;
+	 * the control 99 (0x63) is set to the high byte
+	 * the control 98 (0x62) is set to the low byte
+	 * the control 06 (0x06) is set to the new value
+	 *
+	 * s. SAM2695 doc
+	 */
+	//               0     1   2     3     4   5     6     7   8
+	char nrpn[]= {0xB0, 0x63, 00, 0xB0, 0x62, 00, 0xB0, 0x06, 00};
+
+	nrpn[2] = (message & 0xFF00) >> 8;
+	nrpn[5] = message & 0xFF;
+	nrpn[8] = val > 0x7F ? 0x7F : val; // max. 0x7F
+
+    uart_write_bytes(UART_NUM_2, nrpn, sizeof(nrpn));
+
+    ESP_LOGI(TAG, "setvol(%x,%x) %x %x %x %x %x %x %x %x %x",message, val,nrpn[0],nrpn[1],nrpn[2],nrpn[3],nrpn[4],nrpn[5],nrpn[6],nrpn[7],nrpn[8]);
+
+}
+
+// TODO maybe there are problems while setting the value during play
+void midi_volume(int vol) {
+	/*
+	 *  via NRPN 0x3707
+	 */
+	send_nrpn(0X3707, vol);
+}
+
 void midi_init() {
     /* Configure parameters of an UART driver,
      * communication pins and install the driver */
@@ -90,9 +122,8 @@ void midi_init() {
     uart_driver_install(UART_NUM_2, BUF_SIZE * 2, 0, 0, NULL, 0);
 
     midi_reset();
+    midi_volume(0x7f);
 }
-
-
 
 static void periodic_timer_callback(void* arg)
 {

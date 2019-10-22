@@ -28,7 +28,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
-#include "esp_event_loop.h"
+//#include "esp_event_loop.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_system.h"
@@ -182,6 +182,8 @@ void midi_out_evt( const char evt, const char *data, int len);
 void play_ok();
 void play_err();
 void midi_reset();
+void send_nrpn(unsigned int message, unsigned int val);
+void midi_volume(int vol);
 
 // MIDI file
 int open_midifile(const char *filename);
