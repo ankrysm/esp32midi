@@ -15,6 +15,7 @@
 
 #define INDEX_HTML "index.html"
 #define FILES_HTML "files.html"
+#define DOWNLOAD_HTML "downloads"
 #define SETTINGS_HTML "settings.html"
 
 
@@ -227,15 +228,15 @@ static const char* get_path_from_uri(char *dest, const char *base_path, const ch
     }
 
     if (base_pathlen + pathlen + 1 > destsize) {
-        /* Full path string won't fit into destination buffer */
+        // Full path string won't fit into destination buffer
         return NULL;
     }
 
-    /* Construct full path (base + path) */
+    // Construct full path (base + path)
     strcpy(dest, base_path);
     strlcpy(dest + base_pathlen, uri, pathlen + 1);
 
-    /* Return pointer to path, skipping the base */
+    // Return pointer to path, skipping the base
     return dest + base_pathlen;
 }
 
@@ -338,21 +339,27 @@ static esp_err_t get_handler_index_html(httpd_req_t *req)
     return ESP_OK;
 }
 
+/*
+ * response for files.html
+ *
+ * with path: files.html?path=<path>
+ */
 static esp_err_t get_handler_files_html(httpd_req_t *req) {
 
-//    char dirpath[FILE_PATH_MAX];
+    char dirpath[FILE_PATH_MAX];
 //    FILE *fd = NULL;
 //    struct stat file_stat;
+    const char *dir_from_uri = strlen(req->uri) < strlen(FILES_HTML) ? "" : (req->uri) + strlen(FILES_HTML)+1;
 
-    ESP_LOGI(TAG, "get_handler_files_html '%s'", req->uri);
+    ESP_LOGI(TAG, "get_handler_files_html '%s' (%s)", req->uri,dir_from_uri);
 
-//    const char *filename = get_path_from_uri(dirpath, ((struct file_server_data *)req->user_ctx)->base_path, req->uri, sizeof(dirpath));
-//    if (!filename) {
-//    	ESP_LOGE(TAG, "Filename is too long");
-//    	// Respond with 500 Internal Server Error
-//    	httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Filename too long");
-//    	return ESP_FAIL;
-//    }
+    const char *filename = get_path_from_uri(dirpath, ((struct file_server_data *)req->user_ctx)->base_path, dir_from_uri, sizeof(dirpath));
+    if (!filename) {
+    	ESP_LOGE(TAG, "Filename is too long");
+    	// Respond with 500 Internal Server Error
+    	httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Filename too long");
+    	return ESP_FAIL;
+    }
 
 //    // If name has trailing '/', respond with directory contents
 //    if (filename[strlen(filename) - 1] == '/') {
@@ -363,7 +370,7 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
 //    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "get_handler_files_html NYI");
 //    return ESP_FAIL;
 
-    char *dirpath = BASE_PATH;
+//    char *dirpath = BASE_PATH; // "/spiffs"
     char entrypath[FILE_PATH_MAX];
     char entrysize[16];
     const char *entrytype;
@@ -372,10 +379,11 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
     struct stat entry_stat;
 
     DIR *dir = opendir(dirpath);
-    const size_t dirpath_len = strlen(dirpath);
 
     // Retrieve the base path of file storage to construct the full path
     strlcpy(entrypath, dirpath, sizeof(entrypath));
+    strlcat(entrypath, "/", sizeof(entrypath)); // entrypath is "/spiffs/"
+    const size_t dirpath_len = strlen(entrypath);
 
     if (!dir) {
         ESP_LOGE(TAG, "Failed to stat dir : %s", dirpath);
@@ -398,35 +406,27 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
     httpd_resp_send_chunk(req, (const char *)upload_script_start, upload_script_size);
 
     // Send file-list table definition and column labels
-#ifdef WITH_PRINING_MIDIFILES
-    httpd_resp_sendstr_chunk(req,
-        "<table class=\"fixed\" border=\"1\">"
-        "<col width=\"800px\" /><col width=\"300px\" /><col width=\"300px\" /><col width=\"100px\" />"
-        "<thead><tr><th>Name</th><th>Type</th><th>Size (Bytes)</th><th>Delete</th><th>Play</th><th>Print</th></tr></thead>"
-        "<tbody>");
-#else
     httpd_resp_sendstr_chunk(req,
         "<table class=\"fixed\" border=\"1\">"
         "<col width=\"800px\" /><col width=\"300px\" /><col width=\"300px\" /><col width=\"100px\" />"
         "<thead><tr><th>Name</th><th>Type</th><th>Size (Bytes)</th><th>Delete</th><th>Play</th></tr></thead>"
         "<tbody>");
-#endif
 
+    int file_cnt=0;
     // Iterate over all files / folders and fetch their names and sizes
     while ((entry = readdir(dir)) != NULL) {
         entrytype = (entry->d_type == DT_DIR ? "directory" : "file");
 
         strlcpy(entrypath + dirpath_len, entry->d_name, sizeof(entrypath) - dirpath_len);
         if (stat(entrypath, &entry_stat) == -1) {
-            ESP_LOGE(TAG, "Failed to stat %s : %s", entrytype, entry->d_name);
+            ESP_LOGE(TAG, "Failed to stat %s : %s", entrytype, entrypath);
             continue;
         }
         sprintf(entrysize, "%ld", entry_stat.st_size);
         ESP_LOGI(TAG, "Found %s : %s (%s bytes)", entrytype, entry->d_name, entrysize);
 
         /* Send chunk of HTML file containing table entries with file name and size */
-        httpd_resp_sendstr_chunk(req, "<tr><td><a href=\"");
-        httpd_resp_sendstr_chunk(req, req->uri);
+        httpd_resp_sendstr_chunk(req, "<tr><td><a href=\""DOWNLOAD_HTML"/");
         httpd_resp_sendstr_chunk(req, entry->d_name);
         if (entry->d_type == DT_DIR) {
             httpd_resp_sendstr_chunk(req, "/");
@@ -449,17 +449,15 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
         httpd_resp_sendstr_chunk(req, req->uri);
         httpd_resp_sendstr_chunk(req, entry->d_name);
         httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Play</button></form>");
-#ifdef WITH_PRINING_MIDIFILES
-        httpd_resp_sendstr_chunk(req, "</td><td>");
-        httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/print");
-        httpd_resp_sendstr_chunk(req, req->uri);
-        httpd_resp_sendstr_chunk(req, entry->d_name);
-        httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Print</button></form>");
-#endif
         httpd_resp_sendstr_chunk(req, "</td></tr>\n");
+        file_cnt++;
     }
     closedir(dir);
 
+    if ( ! file_cnt) {
+        httpd_resp_sendstr_chunk(req, "<tr><td>no files</td><td/><td/><td/></td></tr>\n");
+
+    }
     // Line with file system info and stop button
     size_t total = 0, used = 0;
     esp_spiffs_info(NULL, &total, &used);
@@ -468,17 +466,7 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
     httpd_resp_sendstr_chunk(req, "<tr><td>Total</td><td>Filesystem</td><td>");
     httpd_resp_sendstr_chunk(req, fsinfo);
 
-#ifdef WITH_PRINING_MIDIFILES
-    httpd_resp_sendstr_chunk(req, "<td> </td><td> </td></tr>\n");
-#else
-    httpd_resp_sendstr_chunk(req, "</tr>\n");
-#endif
-
-#ifdef WITH_PRINING_MIDIFILES
-    httpd_resp_sendstr_chunk(req, "<td> </td><td> </td></tr>\n");
-#else
-    httpd_resp_sendstr_chunk(req, "</tr>\n");
-#endif
+    httpd_resp_sendstr_chunk(req, "</td></td></td></tr>\n");
 
     // Finish the file list table
     httpd_resp_sendstr_chunk(req, "</tbody></table>");
@@ -507,43 +495,12 @@ static esp_err_t get_handler_settings_html(httpd_req_t *req) {
 
 }
 
-static esp_err_t common_get_handler(httpd_req_t *req) {
-	char filepath[FILE_PATH_MAX];
-
-	ESP_LOGI(TAG, "GET '%s'", req->uri);
-
-	const char *filename = get_path_from_uri(filepath, ((struct file_server_data *)req->user_ctx)->base_path, req->uri, sizeof(filepath));
-	if (!filename) {
-		ESP_LOGE(TAG, "url is too long");
-		// Respond with 500 Internal Server Error
-		httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "URL too long");
-		return ESP_FAIL;
-	}
-
-	// If name has trailing '/', respond with index.html
-	if (filename[strlen(filename) - 1] == '/') {
-		return get_handler_index_html(req);
-	} else if (strcmp(filename, "/index.html") == 0) {
-		return get_handler_index_html(req);
-	} else if (strcmp(filename, "/favicon.ico") == 0) {
-		return favicon_get_handler(req);
-	} else if (strcmp(filename, "/files.html") == 0) {
-		return get_handler_files_html(req);
-	} else if (strcmp(filename, "/setting.html") == 0) {
-		return get_handler_settings_html(req);
-	}
-	ESP_LOGE(TAG, "Failed to stat file : %s", filepath);
-	/* Respond with 404 Not Found */
-	httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File does not exist");
-	return ESP_FAIL;
-}
-
 
 
 /**
  *  Handler to download a file kept on the server
- * /
-static esp_err_t download_get_handler(httpd_req_t *req)
+ */
+static esp_err_t get_handler_download_html(httpd_req_t *req)
 {
     char filepath[FILE_PATH_MAX];
     FILE *fd = NULL;
@@ -568,11 +525,11 @@ static esp_err_t download_get_handler(httpd_req_t *req)
     if (stat(filepath, &file_stat) == -1) {
         // If file not present on SPIFFS check if URI
         // corresponds to one of the hardcoded paths
-        if (strcmp(filename, "/index.html") == 0) {
-            return index_html_get_handler(req);
-        } else if (strcmp(filename, "/favicon.ico") == 0) {
-            return favicon_get_handler(req);
-        }
+        //if (strcmp(filename, "/index.html") == 0) {
+        //    return index_html_get_handler(req);
+//        } else if (strcmp(filename, "/favicon.ico") == 0) {
+//            return favicon_get_handler(req);
+//        }
         ESP_LOGE(TAG, "Failed to stat file : %s", filepath);
         // Respond with 404 Not Found
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File does not exist");
@@ -620,6 +577,39 @@ static esp_err_t download_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 // */
+
+static esp_err_t common_get_handler(httpd_req_t *req) {
+	char filepath[FILE_PATH_MAX];
+
+	ESP_LOGI(TAG, "GET '%s'", req->uri);
+
+	const char *filename = get_path_from_uri(filepath, ((struct file_server_data *)req->user_ctx)->base_path, req->uri, sizeof(filepath));
+	if (!filename) {
+		ESP_LOGE(TAG, "url is too long");
+		// Respond with 500 Internal Server Error
+		httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "URL too long");
+		return ESP_FAIL;
+	}
+
+	if (strcmp(filename,"/") == 0 || ! strlen(filename)) {
+		return get_handler_index_html(req);
+	} else if (strcmp(filename, "/"INDEX_HTML) == 0) {
+		return get_handler_index_html(req);
+	} else if (strcmp(filename, "/favicon.ico") == 0) {
+		return favicon_get_handler(req);
+	} else if (strstr(filename, "/"FILES_HTML) == filename) {
+		return get_handler_files_html(req);
+	} else if (strcmp(filename, "/"DOWNLOAD_HTML) == 0) {
+		return get_handler_download_html(req);
+	} else if (strcmp(filename, "/"SETTINGS_HTML) == 0) {
+		return get_handler_settings_html(req);
+	}
+	ESP_LOGE(TAG, "no handler for '%s'", filepath);
+	/* Respond with 404 Not Found */
+	httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File does not exist");
+	return ESP_FAIL;
+}
+
 
 /**
  *  Handler to upload a file onto the server
