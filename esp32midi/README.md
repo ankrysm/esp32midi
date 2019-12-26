@@ -19,7 +19,7 @@ I use a Mac but it will also work on linux.
 
 ### Preparation
 
-Read the instructions at `https://github.com/espressif/esp-idf/blob/master/docs/en/get-started/index.rst`
+Read the instructions at `https://github.com/espressif/esp-idf`
 
 * Install python - with brew (homebrew):
     * brew install python

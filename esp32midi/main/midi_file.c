@@ -602,7 +602,7 @@ static void periodic_midi_timer_callback(void* arg) {
 		// Schluss, Timer stoppen
 		esp_timer_stop(periodic_midi_timer);
 		int64_t time = esp_timer_get_time();
-		ESP_LOGI(TAG, "Periodic midi timer stopped, duration %lld ms", (time - globalSongData->starttime)/1000 );
+		ESP_LOGI(TAG, "%s: Periodic midi timer stopped, duration %lld ms", __func__, (time - globalSongData->starttime)/1000 );
 		initSongData();
 	}
 }
@@ -647,7 +647,7 @@ int handle_play_midifile(const char *filename , int with_delay) {
 		}
 
  		ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, period*1000));
-		ESP_LOGI(TAG, "playing midifile started %s", (with_delay ? "with_delay" :""));
+		ESP_LOGI(TAG, "%s: playing midifile started %s", __func__, (with_delay ? "with_delay" :""));
 
 		rc = 0;
 	} while(0);
@@ -678,37 +678,38 @@ int handle_play_random_midifile(const char *dirpath, int with_delay) {
     struct dirent *entry;
     struct stat entry_stat;
 
-    int max =0;
+    int midifilecnt = 0;
     DIR *dir = opendir(dirpath);
     if (!dir) {
-        ESP_LOGE(TAG, "handle_play_random_midifile; Failed to stat dir : %s", dirpath);
+        ESP_LOGE(TAG, "%s: handle_play_random_midifile; Failed to stat dir : %s", __func__, dirpath);
         return -1;
     }
 
+    // first reading of dir - discover number of midi files
     while ((entry = readdir(dir)) != NULL) {
     	if (entry->d_type == DT_DIR)
     		continue;
         snprintf(entrypath, sizeof(entrypath),"%s/%s", dirpath, entry->d_name);
         if (stat(entrypath, &entry_stat) == -1) {
-            ESP_LOGE(TAG, "handle_play_random_midifile: %s: Failed to stat %s", entrypath, entry->d_name);
+            ESP_LOGE(TAG, "%s: %s: Failed to stat %s", __func__, entrypath, entry->d_name);
             continue;
         }
         if (! IS_FILE_EXT(entrypath, ".mid")) {
-    		ESP_LOGI(TAG, "handle_play_random_midifile: %s is not a midifile", entrypath);
+    		//ESP_LOGI(TAG, "%s: %s is not a midifile", __func__, entrypath);
     		continue;
         }
-		ESP_LOGI(TAG, "handle_play_random_midifile[%d]: %s is a midifile", ++max, entrypath);
+		ESP_LOGI(TAG, "%s[%d]: %s is a midifile", __func__, ++midifilecnt, entrypath);
 
     }
     closedir(dir);
 
-    int r = 1 + esp_random() % (max - 1); // is not really an random value
+    int r = random_number(midifilecnt);
+    ESP_LOGI(TAG, "%s: random filenumber is %d/%d", __func__, r, midifilecnt);
 
-    ESP_LOGI(TAG, "handle_play_random_midifile: random number is %d/%d", r, max);
-
+    // second reading of dir - discover the random midi file and start playing
     dir = opendir(dirpath);
     if (!dir) {
-        ESP_LOGE(TAG, "handle_play_random_midifile: Failed to stat dir : %s", dirpath);
+        ESP_LOGE(TAG, "%s: Failed to stat dir : %s", __func__, dirpath);
         return -1;
     }
     while ((entry = readdir(dir)) != NULL) {
@@ -716,19 +717,19 @@ int handle_play_random_midifile(const char *dirpath, int with_delay) {
     		continue;
         snprintf(entrypath, sizeof(entrypath),"%s/%s", dirpath, entry->d_name);
         if (stat(entrypath, &entry_stat) == -1) {
-            ESP_LOGE(TAG, "handle_play_random_midifile: %s: Failed to stat %s", entrypath, entry->d_name);
+            ESP_LOGE(TAG, "%s: %s: Failed to stat %s", __func__, entrypath, entry->d_name);
             continue;
         }
         if (! IS_FILE_EXT(entrypath, ".mid")) {
-    		ESP_LOGI(TAG, "handle_play_random_midifile: %s is not a midifile", entrypath);
+    		//ESP_LOGI(TAG, "%s: %s is not a midifile", __func__, entrypath);
     		continue;
         }
         r--;
-		ESP_LOGI(TAG, "handle_play_random_midifile[%d]: %s is a midifile", r, entrypath);
+		//ESP_LOGI(TAG, "%s[%d]: %s is a midifile", __func__, r, entrypath);
 		if ( r > 0 ){
 			continue;
 		}
-		ESP_LOGI(TAG, "handle_play_random_midifile: play %s", entrypath);
+		ESP_LOGI(TAG, "%s: play %s", __func__, entrypath);
 		handle_play_midifile(entrypath, with_delay);
 		break;
     }

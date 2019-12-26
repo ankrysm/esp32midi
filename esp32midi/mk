@@ -1,0 +1,18 @@
+#!/bin/zsh
+export TERM='xterm-256color'
+if (( ${+IDF_PATH} ))
+then
+	echo "IDF_PATH set to $IFD_PATH"
+else
+	export IDF_PATH=$HOME/git/esp/esp-idf
+fi
+
+if (( ${+IDF_EXPORT_DONE} ))
+then
+	echo "esp-env set"
+else
+	. $IDF_PATH/export.sh
+	export IDF_EXPORT_DONE=1
+fi
+make $*
+

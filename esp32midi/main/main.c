@@ -50,6 +50,12 @@ static esp_err_t init_spiffs(void)
     return ESP_OK;
 }
 
+static void do_test() {
+	const int nmax = 20;
+	for ( int i=0; i<100;i++) {
+	    ESP_LOGI(TAG, "%s: random %d %d", __func__, i,random_number(nmax) );
+	}
+}
 
 void app_main()
 {
@@ -59,8 +65,9 @@ void app_main()
 
 	blue_on();
 
+	do_test();
     ESP_ERROR_CHECK(nvs_flash_init());
-    tcpip_adapter_init();
+    ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.

@@ -23,5 +23,9 @@ void blue_off() {
 }
 
 
-
+int random_number(int maxval) {
+    uint32_t rr = esp_random();
+    int r = maxval * (1.0 * rr / UINT32_MAX);
+    return r;
+}
 

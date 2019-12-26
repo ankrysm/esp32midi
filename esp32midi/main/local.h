@@ -38,7 +38,7 @@
 #include "esp_sleep.h"
 #include "esp_sntp.h"
 #include "nvs_flash.h"
-#include "tcpip_adapter.h"
+#include "esp_netif.h"
 #include "protocol_examples_common.h"
 #include "esp_http_server.h"
 
@@ -201,8 +201,8 @@ void test_sntp();
 void obtain_time(void);
 void initialize_sntp(void);
 
-
-
+// util
+int random_number(int);
 
 
 
