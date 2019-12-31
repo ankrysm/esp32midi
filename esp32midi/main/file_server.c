@@ -27,6 +27,7 @@
 /* Scratch buffer size */
 #define SCRATCH_BUFSIZE  8192
 
+
 struct file_server_data {
     /* Base path of file storage */
     char base_path[ESP_VFS_PATH_MAX + 1];
@@ -36,6 +37,8 @@ struct file_server_data {
 };
 
 static const char *TAG = "file_server";
+
+extern t_midi_song *globalSongData;
 
 /* Handler to redirect incoming GET request for /index.html to /
  * This can be overridden by uploading file with same name */
@@ -53,151 +56,6 @@ static esp_err_t favicon_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-
-/**
- * *** MAIN-HTML-Page ****
- *
- * Send HTTP response with a run-time generated html consisting of
- * a list of all files and folders under the requested path.
- * In case of SPIFFS this returns empty list when path is any
- * string other than '/', since SPIFFS doesn't support directories
- * /
-static esp_err_t http_resp_dir_html(httpd_req_t *req, const char *dirpath)
-{
-    char entrypath[FILE_PATH_MAX];
-    char entrysize[16];
-    const char *entrytype;
-
-    struct dirent *entry;
-    struct stat entry_stat;
-
-    DIR *dir = opendir(dirpath);
-    const size_t dirpath_len = strlen(dirpath);
-
-    // Retrieve the base path of file storage to construct the full path
-    strlcpy(entrypath, dirpath, sizeof(entrypath));
-
-    if (!dir) {
-        ESP_LOGE(TAG, "Failed to stat dir : %s", dirpath);
-        // Respond with 404 Not Found
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Directory does not exist");
-        return ESP_FAIL;
-    }
-
-    // Send HTML file header
-    httpd_resp_sendstr_chunk(req, HTML_HEADER);
-
-    // Get handle to embedded file upload script
-    extern const unsigned char upload_script_start[] asm("_binary_upload_script_html_start");
-    extern const unsigned char upload_script_end[]   asm("_binary_upload_script_html_end");
-    const size_t upload_script_size = (upload_script_end - upload_script_start);
-
-    // Add file upload form and script which on execution sends a POST request to /upload
-    httpd_resp_send_chunk(req, (const char *)upload_script_start, upload_script_size);
-
-    // Send file-list table definition and column labels
-#ifdef WITH_PRINING_MIDIFILES
-    httpd_resp_sendstr_chunk(req,
-        "<table class=\"fixed\" border=\"1\">"
-        "<col width=\"800px\" /><col width=\"300px\" /><col width=\"300px\" /><col width=\"100px\" />"
-        "<thead><tr><th>Name</th><th>Type</th><th>Size (Bytes)</th><th>Delete</th><th>Play</th><th>Print</th></tr></thead>"
-        "<tbody>");
-#else
-    httpd_resp_sendstr_chunk(req,
-        "<table class=\"fixed\" border=\"1\">"
-        "<col width=\"800px\" /><col width=\"300px\" /><col width=\"300px\" /><col width=\"100px\" />"
-        "<thead><tr><th>Name</th><th>Type</th><th>Size (Bytes)</th><th>Delete</th><th>Play</th></tr></thead>"
-        "<tbody>");
-#endif
-
-    // Iterate over all files / folders and fetch their names and sizes
-    while ((entry = readdir(dir)) != NULL) {
-        entrytype = (entry->d_type == DT_DIR ? "directory" : "file");
-
-        strlcpy(entrypath + dirpath_len, entry->d_name, sizeof(entrypath) - dirpath_len);
-        if (stat(entrypath, &entry_stat) == -1) {
-            ESP_LOGE(TAG, "Failed to stat %s : %s", entrytype, entry->d_name);
-            continue;
-        }
-        sprintf(entrysize, "%ld", entry_stat.st_size);
-        ESP_LOGI(TAG, "Found %s : %s (%s bytes)", entrytype, entry->d_name, entrysize);
-
-        // Send chunk of HTML file containing table entries with file name and size
-        httpd_resp_sendstr_chunk(req, "<tr><td><a href=\"");
-        httpd_resp_sendstr_chunk(req, req->uri);
-        httpd_resp_sendstr_chunk(req, entry->d_name);
-        if (entry->d_type == DT_DIR) {
-            httpd_resp_sendstr_chunk(req, "/");
-        }
-        httpd_resp_sendstr_chunk(req, "\">");
-        httpd_resp_sendstr_chunk(req, entry->d_name);
-        httpd_resp_sendstr_chunk(req, "</a></td><td>");
-        httpd_resp_sendstr_chunk(req, entrytype);
-        httpd_resp_sendstr_chunk(req, "</td><td>");
-        httpd_resp_sendstr_chunk(req, entrysize);
-
-        httpd_resp_sendstr_chunk(req, "</td><td>");
-        httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/delete");
-        httpd_resp_sendstr_chunk(req, req->uri);
-        httpd_resp_sendstr_chunk(req, entry->d_name);
-        httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Delete</button></form>");
-
-        httpd_resp_sendstr_chunk(req, "</td><td>");
-        httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/play");
-        httpd_resp_sendstr_chunk(req, req->uri);
-        httpd_resp_sendstr_chunk(req, entry->d_name);
-        httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Play</button></form>");
-#ifdef WITH_PRINING_MIDIFILES
-        httpd_resp_sendstr_chunk(req, "</td><td>");
-        httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/print");
-        httpd_resp_sendstr_chunk(req, req->uri);
-        httpd_resp_sendstr_chunk(req, entry->d_name);
-        httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Print</button></form>");
-#endif
-        httpd_resp_sendstr_chunk(req, "</td></tr>\n");
-    }
-    closedir(dir);
-
-    // Line with file system info and stop button
-    size_t total = 0, used = 0;
-    esp_spiffs_info(NULL, &total, &used);
-    char fsinfo[32];
-    snprintf(fsinfo, sizeof(fsinfo),"%d / %d", used,total);
-    httpd_resp_sendstr_chunk(req, "<tr><td>Total</td><td>Filesystem</td><td>");
-    httpd_resp_sendstr_chunk(req, fsinfo);
-    httpd_resp_sendstr_chunk(req, "</td><td></td><td><form method=\"post\" action=\"/stop\">");
-    httpd_resp_sendstr_chunk(req, "<button type=\"submit\">Stop</button></form></td>");
-#ifdef WITH_PRINING_MIDIFILES
-    httpd_resp_sendstr_chunk(req, "<td> </td><td> </td></tr>\n");
-#else
-    httpd_resp_sendstr_chunk(req, "</tr>\n");
-#endif
-
-#ifdef WITH_PRINING_MIDIFILES
-    httpd_resp_sendstr_chunk(req, "<td> </td><td> </td></tr>\n");
-#else
-    httpd_resp_sendstr_chunk(req, "</tr>\n");
-#endif
-
-    // Finish the file list table
-    httpd_resp_sendstr_chunk(req, "</tbody></table>");
-
-    // FURTHER BUTTONS
-    httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/playrandom\">");
-    httpd_resp_sendstr_chunk(req, "<button type=\"submit\">Play Random</button></form></td>");
-
-    httpd_resp_sendstr_chunk(req, "<form method=\"get\" action=\"/setvol\">Volume:<input type=\"text\" name=\"volume\" value=\"100\">");
-    httpd_resp_sendstr_chunk(req, "<input type=\"submit\" value=\"Set\"></form>");
-
-    // Send remaining chunk of HTML file to complete it
-    httpd_resp_sendstr_chunk(req, "</body></html>");
-
-    // Send empty chunk to signal HTTP response completion
-    httpd_resp_sendstr_chunk(req, NULL);
-
-    return ESP_OK;
-}
-*/
 
 /* Set HTTP response content type according to file extension */
 static esp_err_t set_content_type_from_file(httpd_req_t *req, const char *filename)
@@ -263,38 +121,6 @@ static esp_err_t playrandom_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// XXX
-//static esp_err_t setvol50_post_handler(httpd_req_t *req)
-//{
-//    ESP_LOGI(TAG, "setvol 50 %s",req->uri);
-//
-//    midi_volume(0x10);
-//
-//    play_ok();
-//
-//    // Redirect onto root to see the file list
-//    httpd_resp_set_status(req, "303 See Other");
-//    httpd_resp_set_hdr(req, "Location", "/");
-//    httpd_resp_sendstr(req, "Start play random successfully");
-//
-//    return ESP_OK;
-//}
-
-//static esp_err_t setvol100_post_handler(httpd_req_t *req)
-//{
-//    ESP_LOGI(TAG, "setvol 100 %s",req->uri);
-//
-//    midi_volume(0x7f);
-//
-//    play_ok();
-//
-//    // Redirect onto root to see the file list
-//    httpd_resp_set_status(req, "303 See Other");
-//    httpd_resp_set_hdr(req, "Location", "/");
-//    httpd_resp_sendstr(req, "Start play random successfully");
-//
-//    return ESP_OK;
-//}
 
 /**
  * Handler Stop playing
@@ -352,8 +178,6 @@ static esp_err_t get_handler_index_html(httpd_req_t *req)
 static esp_err_t get_handler_files_html(httpd_req_t *req) {
 
     char dirpath[FILE_PATH_MAX];
-//    FILE *fd = NULL;
-//    struct stat file_stat;
     const char *dir_from_uri = strlen(req->uri) < strlen(FILES_HTML) ? "" : (req->uri) + strlen(FILES_HTML)+1;
 
     ESP_LOGI(TAG, "get_handler_files_html '%s' (%s)", req->uri,dir_from_uri);
@@ -366,16 +190,6 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
     	return ESP_FAIL;
     }
 
-//    // If name has trailing '/', respond with directory contents
-//    if (filename[strlen(filename) - 1] == '/') {
-//        return http_resp_dir_html(req, filepath);
-//    }
-
-
-//    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "get_handler_files_html NYI");
-//    return ESP_FAIL;
-
-//    char *dirpath = BASE_PATH; // "/spiffs"
     char entrypath[FILE_PATH_MAX];
     char entrysize[16];
     const char *entrytype;
@@ -414,7 +228,7 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
     httpd_resp_sendstr_chunk(req,
         "<table class=\"fixed\" border=\"1\">"
         "<col width=\"800px\" /><col width=\"300px\" /><col width=\"300px\" /><col width=\"100px\" />"
-        "<thead><tr><th>Name</th><th>Type</th><th>Size (Bytes)</th><th>Delete</th><th>Play</th></tr></thead>"
+        "<thead><tr><th>Name</th><th>Size (Bytes)</th><th>Delete</th><th>Play</th></tr></thead>"
         "<tbody>");
 
     int file_cnt=0;
@@ -438,10 +252,15 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
         }
         httpd_resp_sendstr_chunk(req, "\">");
         httpd_resp_sendstr_chunk(req, entry->d_name);
-        httpd_resp_sendstr_chunk(req, "</a></td><td>");
-        httpd_resp_sendstr_chunk(req, entrytype);
+        httpd_resp_sendstr_chunk(req, "</a>");
+        if ( globalSongData && globalSongData->filepath && strlen(globalSongData->filepath) > sizeof(BASE_PATH)) {
+        	if ( !strcmp(entry->d_name, &(globalSongData->filepath)[sizeof(BASE_PATH)])) {
+        		httpd_resp_sendstr_chunk(req, " (play)");
+        	}
+        }
         httpd_resp_sendstr_chunk(req, "</td><td>");
         httpd_resp_sendstr_chunk(req, entrysize);
+
 
         httpd_resp_sendstr_chunk(req, "</td><td>");
         httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/delete/");
@@ -460,7 +279,7 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
     closedir(dir);
 
     if ( ! file_cnt) {
-        httpd_resp_sendstr_chunk(req, "<tr><td>no files</td><td/><td/><td/></td></tr>\n");
+        httpd_resp_sendstr_chunk(req, "<tr><td>no files</td><td/><td/></td></tr>\n");
 
     }
     // Line with file system info and stop button
@@ -468,13 +287,20 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
     esp_spiffs_info(NULL, &total, &used);
     char fsinfo[32];
     snprintf(fsinfo, sizeof(fsinfo),"%d / %d", used,total);
-    httpd_resp_sendstr_chunk(req, "<tr><td>Total</td><td>Filesystem</td><td>");
+    httpd_resp_sendstr_chunk(req, "<tr><td>Total Filesystem</td><td>");
     httpd_resp_sendstr_chunk(req, fsinfo);
-
-    httpd_resp_sendstr_chunk(req, "</td></td></td></tr>\n");
+    httpd_resp_sendstr_chunk(req, "</td><td/><td/></tr>\n");
 
     // Finish the file list table
     httpd_resp_sendstr_chunk(req, "</tbody></table>");
+
+    if ( globalSongData && globalSongData->filepath) {
+    	 httpd_resp_sendstr_chunk(req, "<p>playing: '");
+    	 httpd_resp_sendstr_chunk(req, &(globalSongData->filepath)[sizeof(BASE_PATH)]);
+    	 httpd_resp_sendstr_chunk(req, "'</p>");
+    } else {
+    	httpd_resp_sendstr_chunk(req,  "<p>nothing played </p>");
+    }
 
     httpd_resp_sendstr_chunk(req,  "<p><form method=\"post\" action=\"/stop\"><button type=\"submit\">Stop</button></form></p>");
     httpd_resp_sendstr_chunk(req,  "<p><form method=\"post\" action=\"/playrandom\"><button type=\"submit\">Play Random</button></form></p>");

@@ -106,6 +106,13 @@ enum EVENT_STATE
 #define DELAY_MILLIES 2000 // 2 secs
 //#define WITH_PRINING_MIDIFILES
 
+enum enum_action {
+	action_none,
+	action_stop,
+	action_play,
+	action_playnext,
+	action_playnext_with_delay
+};
 // structures
 // static midi-Data
 typedef struct  {
@@ -204,6 +211,6 @@ void initialize_sntp(void);
 // util
 int random_number(int);
 
-
+// variables
 
 #endif /* ESP32MIDI_MAIN_LOCAL_H_ */

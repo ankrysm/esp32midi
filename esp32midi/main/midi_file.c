@@ -9,9 +9,14 @@
 
 static const char *TAG = "midi_file";
 
+// actions:
+static char *filename_nxt = NULL; // next file to play
+static int action = action_none;
+static int timer_is_running = 0;
+
 static esp_timer_handle_t periodic_midi_timer = NULL;
 
-static 	t_midi_song *globalSongData=NULL;
+t_midi_song *globalSongData=NULL;
 
 static long read_long(size_t n, FILE *fd) {
     unsigned char buf[32];
@@ -594,36 +599,104 @@ int parse_midifile() {
 	return activeTracks;
 }
 
+static void stop_playing() {
+	esp_timer_stop(periodic_midi_timer);
+	timer_is_running = 0;
+	initSongData();
+	midi_reset();
+	action = action_none;
+}
+
 static void periodic_midi_timer_callback(void* arg) {
 
-	int n =parse_midifile(false);
-
-	if (n <= 0) {
-		// Schluss, Timer stoppen
-		esp_timer_stop(periodic_midi_timer);
-		int64_t time = esp_timer_get_time();
-		ESP_LOGI(TAG, "%s: Periodic midi timer stopped, duration %lld ms", __func__, (time - globalSongData->starttime)/1000 );
+	if ( !globalSongData) {
 		initSongData();
 	}
+
+	int rc = 0;
+	int64_t time;
+	uint64_t period;
+	int with_delay;
+
+	switch(action) {
+	case action_none:
+		break;
+
+	case action_play:
+		rc = parse_midifile();
+		if (rc <= 0) {
+			// Schluss, Timer stoppen
+			time = esp_timer_get_time();
+			ESP_LOGI(TAG, "%s: play complete, duration %lld ms", __func__, (time - globalSongData->starttime)/1000 );
+
+			stop_playing();
+		}
+		break;
+	case action_stop:
+		time = esp_timer_get_time();
+		if ( globalSongData->fd ) {
+			ESP_LOGI(TAG, "%s: stop playing after %lld ms", __func__, (time - globalSongData->starttime)/1000 );
+		} else {
+			ESP_LOGI(TAG, "%s: stop playing, but nothing plays", __func__ );
+		}
+
+		stop_playing();
+		break;
+
+	case action_playnext:
+	case action_playnext_with_delay:
+		stop_playing();
+
+		with_delay = action == action_playnext_with_delay;
+		ESP_LOGI(TAG, "%s: start playing %s %s", __func__, filename_nxt, (with_delay ? "with_delay" :""));
+
+		if (open_midifile(filename_nxt))
+			break; // something wrong
+
+		globalSongData->starttime = esp_timer_get_time();
+
+		period = globalSongData->timermillies;
+		if ( with_delay) {
+			period = DELAY_MILLIES;
+			globalSongData->song_ticks = -1;
+		}
+
+ 		ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, period*1000));
+ 		timer_is_running = 1;
+ 		action = action_play;
+
+ 		break;
+
+	default:
+		stop_playing();
+		ESP_LOGE(TAG, "%s: unexpected action %d", __func__, action);
+	}
+
+
 }
 
 int handle_play_midifile(const char *filename , int with_delay) {
 	int rc = -1;
 	do {
-		if (periodic_midi_timer) {
-			esp_timer_stop(periodic_midi_timer);
-		}
-
-		// initialize song-data
-		initSongData();
+//		if (periodic_midi_timer) {
+//			esp_timer_stop(periodic_midi_timer);
+//		}
+//
+//		// initialize song-data
+//		initSongData();
 
 #ifdef WITH_PRINING_MIDIFILES
 		globalSongData->printonly = false;
 #endif
 
-		if (open_midifile(filename)) break;
-
-		midi_reset();
+//		if (open_midifile(filename)) break;
+//
+//		midi_reset();
+		if ( filename_nxt) {
+			free(filename_nxt);
+		}
+		filename_nxt = strdup(filename);
+		action = with_delay ? action_playnext_with_delay : action_playnext;
 
 		if (periodic_midi_timer == NULL) {
 			// timer muss erzeugt werden
@@ -634,20 +707,27 @@ int handle_play_midifile(const char *filename , int with_delay) {
 			};
 
 			ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_midi_timer));
-		} else {
-			// Timer stoppen, wenn er läuft
-			esp_timer_stop(periodic_midi_timer);
-		}
-		globalSongData->starttime = esp_timer_get_time();
-
-		uint64_t period = globalSongData->timermillies;
-		if ( with_delay) {
-			period = DELAY_MILLIES;
-			globalSongData->song_ticks = -1;
 		}
 
- 		ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, period*1000));
-		ESP_LOGI(TAG, "%s: playing midifile started %s", __func__, (with_delay ? "with_delay" :""));
+		if ( ! timer_is_running) {
+			ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, 1000));
+			timer_is_running = 1;
+		}
+
+//		else {
+//			// Timer stoppen, wenn er läuft
+//			esp_timer_stop(periodic_midi_timer);
+//		}
+//		globalSongData->starttime = esp_timer_get_time();
+//
+//		uint64_t period = globalSongData->timermillies;
+//		if ( with_delay) {
+//			period = DELAY_MILLIES;
+//			globalSongData->song_ticks = -1;
+//		}
+//
+// 		ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, period*1000));
+		ESP_LOGI(TAG, "%s: playing midifile %s initiated %s", __func__, filename, (with_delay ? "with_delay" :""));
 
 		rc = 0;
 	} while(0);
@@ -659,14 +739,32 @@ int handle_play_midifile(const char *filename , int with_delay) {
 #endif
 
 int handle_stop_midifile() {
-	if (periodic_midi_timer) {
-		esp_timer_stop(periodic_midi_timer);
+
+	if ( filename_nxt) {
+		free(filename_nxt);
+	}
+	filename_nxt = NULL;
+	action = action_stop;
+
+	if ( periodic_midi_timer) {
+		if ( ! timer_is_running) {
+			ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, 1000));
+			timer_is_running = 1;
+		}
+		ESP_LOGI(TAG, "%s: stop playing midifile initiated", __func__);
+	} else {
+		ESP_LOGI(TAG, "%s: stop playing not yet initalized", __func__);
+
 	}
 
-	// initialize song-data
-	initSongData();
-
-	midi_reset();
+	//	if (periodic_midi_timer) {
+	//		esp_timer_stop(periodic_midi_timer);
+	//	}
+	//
+	//	// initialize song-data
+	//	initSongData();
+	//
+	//	midi_reset();
 	return 0;
 
 }
