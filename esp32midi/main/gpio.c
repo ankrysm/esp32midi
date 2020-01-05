@@ -111,8 +111,11 @@ static void gpio_main_task(void* arg)
             strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
         	ESP_LOGI(TAG, "%s GPIO raise event",strftime_buf);
 
-        	// play without delay
-        	handle_play_random_midifile(BASE_PATH, 0);
+        	// play without delay with full vol
+        	const int force_repeat = 1;
+        	const int with_delay = 0;
+        	const int with_full_volume=1;
+			handle_play_next_from_playlist(force_repeat, with_delay, with_full_volume);
         }
     }
 }

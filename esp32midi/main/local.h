@@ -109,10 +109,33 @@ enum EVENT_STATE
 enum enum_action {
 	action_none,
 	action_stop,
+	action_pause,
 	action_play,
 	action_playnext,
-	action_playnext_with_delay
+	action_playnext_with_delay,
+	action_setvolume
 };
+
+
+enum enum_play_status {
+	play_status_new, play_status_actual, play_status_played
+};
+
+enum enum_flags {
+	flags_none     = 0x0000,
+	flags_repeat   = 0x0001,
+	flags_shuffle  = 0x0002,
+	flags_play_all = 0x0004
+};
+
+enum enum_actions {
+	actions_none,
+	actions_play,
+	actions_stop,
+	actions_next,
+	actions_first
+};
+
 // structures
 // static midi-Data
 typedef struct  {
@@ -173,6 +196,15 @@ typedef struct {
 	t_midi_track *tracks;
 } t_midi_song;
 
+typedef struct PLAYLIST_ENTRY{
+	char *path;
+	int play_status;
+	long sortkey;
+	struct PLAYLIST_ENTRY *nxt;
+} T_PLAYLIST_ENTRY;
+
+
+
 // Prototypes
 // gpio.c
 void init_gpio();
@@ -195,10 +227,14 @@ void midi_volume(int vol);
 // MIDI file
 int open_midifile(const char *filename);
 int parse_midifile();
-int handle_play_midifile(const char *filename, int with_delay);
+int handle_play_midifile(const char *filename, int with_delay, int with_full_volume);
 int handle_print_midifile(const char *filename);
+void handle_play_next_from_playlist(int force_repeat, int with_delay, int with_full_volume);
 int handle_stop_midifile();
-int handle_play_random_midifile(const char *path, int with_delay );
+int handle_next_from_playlist();
+void setVolume(int vol);
+int getVolume();
+char *sGetVolume();
 
 // Start Fileserver
 esp_err_t start_file_server(const char *base_path);
@@ -210,6 +246,17 @@ void initialize_sntp(void);
 
 // util
 int random_number(int);
+
+// playlist
+void freeplaylist(void);
+void restart_playlist(void);
+void dump_playlist(void);
+void update_playlist(void);
+T_PLAYLIST_ENTRY *nxtentry(void);
+T_PLAYLIST_ENTRY *actualplayedentry(void);
+char *nxtplaylistentry(int force_repeat);
+int setplaylistposition(const char *filename);
+esp_err_t build_playlist(const char *dirpath);
 
 // variables
 

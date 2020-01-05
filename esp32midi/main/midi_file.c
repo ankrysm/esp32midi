@@ -12,11 +12,17 @@ static const char *TAG = "midi_file";
 // actions:
 static char *filename_nxt = NULL; // next file to play
 static int action = action_none;
-static int timer_is_running = 0;
+static int play_with_full_volume = 0;
 
+static int play_volume = 64; // half full volume
+
+static int timer_is_running = 0;
 static esp_timer_handle_t periodic_midi_timer = NULL;
 
 t_midi_song *globalSongData=NULL;
+
+extern int playlist_flags;
+
 
 static long read_long(size_t n, FILE *fd) {
     unsigned char buf[32];
@@ -419,6 +425,7 @@ int parse_midifile() {
 
 	if ( globalSongData->song_ticks < 0 ) {
 		// we have waited now start with the song
+		ESP_LOGI(TAG, "---- Start Delay %s -----", globalSongData->filepath);
 		esp_timer_stop(periodic_midi_timer);
 		ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, globalSongData->timermillies*1000));
 
@@ -613,6 +620,7 @@ static void periodic_midi_timer_callback(void* arg) {
 		initSongData();
 	}
 
+	static int last_action = action_none;
 	int rc = 0;
 	int64_t time;
 	uint64_t period;
@@ -620,6 +628,11 @@ static void periodic_midi_timer_callback(void* arg) {
 
 	switch(action) {
 	case action_none:
+		break;
+
+	case action_setvolume:
+		midi_volume(play_volume);
+		action= action_play;
 		break;
 
 	case action_play:
@@ -630,8 +643,16 @@ static void periodic_midi_timer_callback(void* arg) {
 			ESP_LOGI(TAG, "%s: play complete, duration %lld ms", __func__, (time - globalSongData->starttime)/1000 );
 
 			stop_playing();
+
+			if ( playlist_flags & flags_play_all) {
+	        	const int force_repeat = 0;
+	        	const int with_delay = 0;
+	        	const int with_full_volume = 0;
+				handle_play_next_from_playlist(force_repeat,with_delay,with_full_volume );
+			}
 		}
 		break;
+
 	case action_stop:
 		time = esp_timer_get_time();
 		if ( globalSongData->fd ) {
@@ -641,17 +662,31 @@ static void periodic_midi_timer_callback(void* arg) {
 		}
 
 		stop_playing();
+
+		break;
+
+	case action_pause: // XXX ???
+		if ( last_action != action_none ) {
+			// resume playing
+			action = last_action;
+		} else {
+
+		}
 		break;
 
 	case action_playnext:
 	case action_playnext_with_delay:
-		stop_playing();
 
+		// must be executed before stop_playing ( action will be overwritten)
 		with_delay = action == action_playnext_with_delay;
 		ESP_LOGI(TAG, "%s: start playing %s %s", __func__, filename_nxt, (with_delay ? "with_delay" :""));
 
+		stop_playing();
+
 		if (open_midifile(filename_nxt))
 			break; // something wrong
+
+		midi_volume(play_with_full_volume ? 127 : play_volume);
 
 		globalSongData->starttime = esp_timer_get_time();
 
@@ -675,31 +710,22 @@ static void periodic_midi_timer_callback(void* arg) {
 
 }
 
-int handle_play_midifile(const char *filename , int with_delay) {
+int handle_play_midifile(const char *filename , int with_delay, int with_full_volume) {
 	int rc = -1;
 	do {
-//		if (periodic_midi_timer) {
-//			esp_timer_stop(periodic_midi_timer);
-//		}
-//
-//		// initialize song-data
-//		initSongData();
-
 #ifdef WITH_PRINING_MIDIFILES
 		globalSongData->printonly = false;
 #endif
 
-//		if (open_midifile(filename)) break;
-//
-//		midi_reset();
 		if ( filename_nxt) {
 			free(filename_nxt);
 		}
 		filename_nxt = strdup(filename);
 		action = with_delay ? action_playnext_with_delay : action_playnext;
+		play_with_full_volume = with_full_volume;
 
 		if (periodic_midi_timer == NULL) {
-			// timer muss erzeugt werden
+			// have to create the timer
 			const esp_timer_create_args_t periodic_timer_args = {
 					.callback =	&periodic_midi_timer_callback,
 					// name is optional, but may help identify the timer when debugging
@@ -709,25 +735,13 @@ int handle_play_midifile(const char *filename , int with_delay) {
 			ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_midi_timer));
 		}
 
+		// if the timer is not running: Start it for a small period
 		if ( ! timer_is_running) {
 			ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, 1000));
 			timer_is_running = 1;
 		}
 
-//		else {
-//			// Timer stoppen, wenn er läuft
-//			esp_timer_stop(periodic_midi_timer);
-//		}
-//		globalSongData->starttime = esp_timer_get_time();
-//
-//		uint64_t period = globalSongData->timermillies;
-//		if ( with_delay) {
-//			period = DELAY_MILLIES;
-//			globalSongData->song_ticks = -1;
-//		}
-//
-// 		ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, period*1000));
-		ESP_LOGI(TAG, "%s: playing midifile %s initiated %s", __func__, filename, (with_delay ? "with_delay" :""));
+		ESP_LOGI(TAG, "%s: playing midifile %s initiated %s%s", __func__, filename, (with_delay ? " with_delay" :""), play_with_full_volume ? " with full volume":"");
 
 		rc = 0;
 	} while(0);
@@ -753,23 +767,30 @@ int handle_stop_midifile() {
 		}
 		ESP_LOGI(TAG, "%s: stop playing midifile initiated", __func__);
 	} else {
-		ESP_LOGI(TAG, "%s: stop playing not yet initalized", __func__);
+		ESP_LOGI(TAG, "%s: stop playing: not yet initalized", __func__);
 
 	}
 
-	//	if (periodic_midi_timer) {
-	//		esp_timer_stop(periodic_midi_timer);
-	//	}
-	//
-	//	// initialize song-data
-	//	initSongData();
-	//
-	//	midi_reset();
 	return 0;
 
 }
 
-int handle_play_random_midifile(const char *dirpath, int with_delay) {
+void handle_play_next_from_playlist(int force_repeat, int with_delay, int with_full_volume) {
+
+	char *nxtfile = nxtplaylistentry(force_repeat);
+	if ( !nxtfile) {
+		ESP_LOGI(TAG, "%s: no next midi file", __func__);
+		handle_stop_midifile();
+		return;
+	}
+
+	ESP_LOGI(TAG, "%s: next midi file: %s", __func__, nxtfile);
+	handle_play_midifile(nxtfile, with_delay, with_full_volume);
+
+}
+
+/*
+int handle_play_random_midifile(const char *dirpath, int with_delay, int with_full_volume) {
 
 	char entrypath[256+1];
 
@@ -828,7 +849,7 @@ int handle_play_random_midifile(const char *dirpath, int with_delay) {
 			continue;
 		}
 		ESP_LOGI(TAG, "%s: play %s", __func__, entrypath);
-		handle_play_midifile(entrypath, with_delay);
+		handle_play_midifile(entrypath, with_delay, with_full_volume);
 		break;
     }
     closedir(dir);
@@ -836,3 +857,26 @@ int handle_play_random_midifile(const char *dirpath, int with_delay) {
 
     return 0;
 }
+*/
+
+
+void setVolume(int vol) {
+	play_volume = vol;
+	if ( action == action_play) {
+		action = action_setvolume;
+	}
+}
+
+int getVolume() {
+	return play_volume;
+}
+
+/*
+ * get volume for Webservice as String
+ */
+char *sGetVolume() {
+	static char txt[10];
+	snprintf(txt, sizeof(txt),"%d", play_volume);
+	return txt;
+}
+

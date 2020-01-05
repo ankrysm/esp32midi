@@ -9,6 +9,7 @@
 
 #include "local.h"
 
+extern int playlist_flags;
 /* This example demonstrates how to create file server
  * using esp_http_server. This file has only startup code.
  * Look in file_server.c for the implementation */
@@ -79,11 +80,16 @@ void app_main()
      */
     ESP_ERROR_CHECK(example_connect());
 
-    /* Initialize file storage */
+    // Initialize file storage
     ESP_ERROR_CHECK(init_spiffs());
 
-    /* Start the file server */
-    ESP_ERROR_CHECK(start_file_server("/spiffs"));
+    // Initialize playlist
+    playlist_flags = flags_shuffle | flags_play_all | flags_repeat;
+    ESP_ERROR_CHECK(build_playlist(BASE_PATH));
+    dump_playlist();
+
+    // Start the file server
+    ESP_ERROR_CHECK(start_file_server(BASE_PATH));
 
 	play_ok();
 

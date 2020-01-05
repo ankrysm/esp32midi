@@ -19,29 +19,29 @@
 
 #define DOWNLOAD_PATH "downloads"
 #define PLAY_PATH "play"
-#define PLAY_RANDOM_PATH "playrandom"
+
 #define DELETE_PATH "delete"
-#define STOP_PATH "stop"
 #define UPLOAD_PATH "upload"
+
+#define PLAYLIST_PATH "playlist"
+#define SETVOL_PATH "setvol"
 
 /* Scratch buffer size */
 #define SCRATCH_BUFSIZE  8192
 
 
-struct file_server_data {
+typedef struct file_server_data {
     /* Base path of file storage */
     char base_path[ESP_VFS_PATH_MAX + 1];
 
     /* Scratch buffer for temporary storage during file transfer */
     char scratch[SCRATCH_BUFSIZE];
-};
+} file_server_data_t;
 
 static const char *TAG = "file_server";
 
 extern t_midi_song *globalSongData;
-
-/* Handler to redirect incoming GET request for /index.html to /
- * This can be overridden by uploading file with same name */
+extern int playlist_flags;
 
 /* Handler to respond with an icon file embedded in flash.
  * Browsers expect to GET website icon at URI /favicon.ico.
@@ -103,51 +103,186 @@ static const char* get_path_from_uri(char *dest, const char *base_path, const ch
     return dest + base_pathlen;
 }
 
+
+static esp_err_t setvol_post_handler(httpd_req_t *req) {
+	ESP_LOGI(TAG, "%s: POST %s",__func__, req->uri);
+
+	int total_len = req->content_len;
+	int cur_len = 0;
+
+	char *buf = ((file_server_data_t *)(req->user_ctx))->scratch;
+	int received = 0;
+	if (total_len >= SCRATCH_BUFSIZE) {
+		/* Respond with 500 Internal Server Error */
+		httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "content too long");
+		return ESP_FAIL;
+	}
+	while (cur_len < total_len) {
+		received = httpd_req_recv(req, buf + cur_len, total_len);
+		if (received <= 0) {
+			/* Respond with 500 Internal Server Error */
+			httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to post control value");
+			return ESP_FAIL;
+		}
+		cur_len += received;
+	}
+	buf[total_len] = '\0';
+
+	ESP_LOGI(TAG, "%s: POST %s",__func__, buf);
+
+	char param[64];
+
+
+	char *key = "volume";
+	if (httpd_query_key_value(buf, key, param, sizeof(param)) == ESP_OK) {
+		ESP_LOGI(TAG, "%s: Found URL query parameter => %s=%s", __func__, key, param);
+		char *l;
+		long v = strtol(param, &l, 10);
+		if ( strlen(l)) {
+			httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "volume not decimal");
+			return ESP_FAIL;
+		}
+		setVolume(v);
+	}
+	// Redirect onto root to see the file list
+	httpd_resp_set_status(req, "303 See Other");
+	httpd_resp_set_hdr(req, "Location", "/"FILES_HTML);
+	httpd_resp_sendstr(req, "Start play random successfully");
+
+	return ESP_OK;
+
+}
+
+
 /**
- * play random
+ * playlist random
  */
-static esp_err_t playrandom_post_handler(httpd_req_t *req)
-{
-    ESP_LOGI(TAG, "%s: Play something random %s",__func__, req->uri);
+static esp_err_t playlist_post_handler(httpd_req_t *req) {
+	ESP_LOGI(TAG, "%s: POST %s",__func__, req->uri);
 
-    // play with delay
-    handle_play_random_midifile(((struct file_server_data *)req->user_ctx)->base_path, 1 );
+	int total_len = req->content_len;
+	int cur_len = 0;
 
-    // Redirect onto root to see the file list
-    httpd_resp_set_status(req, "303 See Other");
-    httpd_resp_set_hdr(req, "Location", "/"FILES_HTML);
-    httpd_resp_sendstr(req, "Start play random successfully");
+	char *buf = ((file_server_data_t *)(req->user_ctx))->scratch;
+	int received = 0;
+	if (total_len >= SCRATCH_BUFSIZE) {
+		/* Respond with 500 Internal Server Error */
+		httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "content too long");
+		return ESP_FAIL;
+	}
+	while (cur_len < total_len) {
+		received = httpd_req_recv(req, buf + cur_len, total_len);
+		if (received <= 0) {
+			/* Respond with 500 Internal Server Error */
+			httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to post control value");
+			return ESP_FAIL;
+		}
+		cur_len += received;
+	}
+	buf[total_len] = '\0';
 
-    return ESP_OK;
+	ESP_LOGI(TAG, "%s: POST %s",__func__, buf);
+
+	char param[64];
+	int action = actions_none;
+	int pl_flags = flags_none;
+	char *key = "action";
+	if (httpd_query_key_value(buf, key, param, sizeof(param)) == ESP_OK) {
+		ESP_LOGI(TAG, "%s: Found URL query parameter => %s=%s", __func__, key, param);
+		if ( !strcmp(param,"first")) {
+			action = actions_first;
+		} else if ( !strcmp(param, "play")) {
+			action = actions_play;
+		} else if ( !strcmp(param, "next")) {
+			action = actions_next;
+		} else if ( !strcmp(param, "stop")) {
+			action = actions_stop;
+		} else {
+			ESP_LOGE(TAG,"%s: unexpected action'%s'", __func__, param);
+		}
+	}
+	key = "random";
+	if (httpd_query_key_value(buf, key, param, sizeof(param)) == ESP_OK) {
+		ESP_LOGI(TAG, "%s: Found URL query parameter => %s=%s", __func__, key, param);
+		pl_flags |= flags_shuffle;
+	}
+	key = "repeat";
+	if (httpd_query_key_value(buf, key, param, sizeof(param)) == ESP_OK) {
+		ESP_LOGI(TAG, "%s: Found URL query parameter => %s=%s", __func__, key, param);
+		pl_flags |= flags_repeat;
+	}
+	key = "all";
+	if (httpd_query_key_value(buf, key, param, sizeof(param)) == ESP_OK) {
+		ESP_LOGI(TAG, "%s: Found URL query parameter => %s=%s", __func__, key, param);
+		pl_flags |= flags_play_all;
+	}
+
+	int playlist_upd = (pl_flags & flags_shuffle) != (playlist_flags & flags_shuffle);
+	playlist_flags= pl_flags;
+	if (playlist_upd)  {
+		// update playlist
+		update_playlist();
+	    ESP_LOGI(TAG, "%s: playlist updated",__func__);
+	}
+
+	const int force_repeat=0;
+	const int with_deleay = 1;
+	const int with_full_volume=0;
+	switch ( action ) {
+		case actions_stop:
+		    ESP_LOGI(TAG, "%s: Stop Playing",__func__);
+		    handle_stop_midifile();
+		    break;
+
+		case actions_first:
+			restart_playlist();
+			handle_play_next_from_playlist(force_repeat, with_deleay, with_full_volume);
+		    ESP_LOGI(TAG, "%s: play first",__func__);
+			break;
+		case actions_next:
+		    ESP_LOGI(TAG, "%s: play nxt",__func__);
+			handle_play_next_from_playlist(force_repeat, with_deleay, with_full_volume);
+			break;
+		case actions_play:
+		    ESP_LOGI(TAG, "%s: start playing",__func__);
+			handle_play_next_from_playlist(force_repeat, with_deleay, with_full_volume);
+			break;
+
+	}
+	dump_playlist();
+
+
+	// Redirect onto root to see the file list
+	httpd_resp_set_status(req, "303 See Other");
+	httpd_resp_set_hdr(req, "Location", "/"FILES_HTML);
+	httpd_resp_sendstr(req, "Start play random successfully");
+
+	return ESP_OK;
 }
 
 
 /**
  * Handler Stop playing
  */
-static esp_err_t stop_playing_post_handler(httpd_req_t *req)
-{
-    ESP_LOGI(TAG, "Stop Playing %s",req->uri);
-
-    handle_stop_midifile();
-
-    // Redirect onto root to see the file list
-    httpd_resp_set_status(req, "303 See Other");
-    httpd_resp_set_hdr(req, "Location", "/"FILES_HTML);
-    httpd_resp_sendstr(req, "Stop playing successfully");
-
-    return ESP_OK;
-}
+//static esp_err_t stop_playing_post_handler(httpd_req_t *req)
+//{
+//    ESP_LOGI(TAG, "Stop Playing %s",req->uri);
+//
+//    handle_stop_midifile();
+//
+//    // Redirect onto root to see the file list
+//    httpd_resp_set_status(req, "303 See Other");
+//    httpd_resp_set_hdr(req, "Location", "/"FILES_HTML);
+//    httpd_resp_sendstr(req, "Stop playing successfully");
+//
+//    return ESP_OK;
+//}
 
 /**
- * GET-Handler
+ * GET-Handler start page
  */
 static esp_err_t get_handler_index_html(httpd_req_t *req)
 {
-//    httpd_resp_set_status(req, "307 Temporary Redirect");
-//    httpd_resp_set_hdr(req, "Location", "/");
-//    httpd_resp_send(req, NULL, 0);  // Response body can be empty
-
     ESP_LOGI(TAG, "get_handler_index_html '%s'", req->uri);
 
     // Send HTML file header
@@ -172,24 +307,43 @@ static esp_err_t get_handler_index_html(httpd_req_t *req)
 
 /*
  * response for files.html
- *
- * with path: files.html?path=<path>
  */
 static esp_err_t get_handler_files_html(httpd_req_t *req) {
 
     char dirpath[FILE_PATH_MAX];
-    const char *dir_from_uri = strlen(req->uri) < strlen(FILES_HTML) ? "" : (req->uri) + strlen(FILES_HTML)+1;
 
-    ESP_LOGI(TAG, "get_handler_files_html '%s' (%s)", req->uri,dir_from_uri);
+    ESP_LOGI(TAG, "%s '%s'", __func__, req->uri);
 
-    const char *filename = get_path_from_uri(dirpath, ((struct file_server_data *)req->user_ctx)->base_path, dir_from_uri, sizeof(dirpath));
-    if (!filename) {
-    	ESP_LOGE(TAG, "Filename is too long");
-    	// Respond with 500 Internal Server Error
-    	httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Filename too long");
-    	return ESP_FAIL;
-    }
+	char*  buf;
+	size_t buf_len;
 
+	// Get header value string length and allocate memory for length + 1,
+	// extra byte for null termination
+	buf_len = httpd_req_get_hdr_value_len(req, "Host") + 1;
+	if (buf_len > 1) {
+		buf = malloc(buf_len);
+		// Copy null terminated value string into buffer
+		if (httpd_req_get_hdr_value_str(req, "Host", buf, buf_len) == ESP_OK) {
+			ESP_LOGI(TAG, "Found header => Host: %s", buf);
+		}
+		free(buf);
+	}
+
+
+	// Read URL query string length and allocate memory for length + 1,
+	// extra byte for null termination
+	buf_len = httpd_req_get_url_query_len(req) + 1;
+	if (buf_len > 1) {
+		buf = malloc(buf_len);
+		if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+			ESP_LOGI(TAG, "%s: Found URL query => %s", __func__, buf);
+			char param[32];
+			// Get value of expected key from query string
+		}
+		free(buf);
+	}
+
+	// File listing
     char entrypath[FILE_PATH_MAX];
     char entrysize[16];
     const char *entrytype;
@@ -197,6 +351,7 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
     struct dirent *entry;
     struct stat entry_stat;
 
+    snprintf(dirpath,sizeof(dirpath),"%s", BASE_PATH);
     DIR *dir = opendir(dirpath);
 
     // Retrieve the base path of file storage to construct the full path
@@ -264,13 +419,11 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
 
         httpd_resp_sendstr_chunk(req, "</td><td>");
         httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/delete/");
-        //httpd_resp_sendstr_chunk(req, req->uri);
         httpd_resp_sendstr_chunk(req, entry->d_name);
         httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Delete</button></form>");
 
         httpd_resp_sendstr_chunk(req, "</td><td>");
         httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/play/");
-        //httpd_resp_sendstr_chunk(req, req->uri);
         httpd_resp_sendstr_chunk(req, entry->d_name);
         httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\">Play</button></form>");
         httpd_resp_sendstr_chunk(req, "</td></tr>\n");
@@ -285,10 +438,10 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
     // Line with file system info and stop button
     size_t total = 0, used = 0;
     esp_spiffs_info(NULL, &total, &used);
-    char fsinfo[32];
-    snprintf(fsinfo, sizeof(fsinfo),"%d / %d", used,total);
+    char text[128];
+    snprintf(text, sizeof(text),"%d / %d", used,total);
     httpd_resp_sendstr_chunk(req, "<tr><td>Total Filesystem</td><td>");
-    httpd_resp_sendstr_chunk(req, fsinfo);
+    httpd_resp_sendstr_chunk(req, text);
     httpd_resp_sendstr_chunk(req, "</td><td/><td/></tr>\n");
 
     // Finish the file list table
@@ -297,16 +450,51 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
     if ( globalSongData && globalSongData->filepath) {
     	 httpd_resp_sendstr_chunk(req, "<p>playing: '");
     	 httpd_resp_sendstr_chunk(req, &(globalSongData->filepath)[sizeof(BASE_PATH)]);
-    	 httpd_resp_sendstr_chunk(req, "'</p>");
     } else {
     	httpd_resp_sendstr_chunk(req,  "<p>nothing played </p>");
     }
 
-    httpd_resp_sendstr_chunk(req,  "<p><form method=\"post\" action=\"/stop\"><button type=\"submit\">Stop</button></form></p>");
-    httpd_resp_sendstr_chunk(req,  "<p><form method=\"post\" action=\"/playrandom\"><button type=\"submit\">Play Random</button></form></p>");
-    httpd_resp_sendstr_chunk(req,  "<p><form method=\"get\" action=\"/settings.html\">Lautstärke:<input type=\"text\" name=\"volume\" value=\"100\"><input type=\"submit\" value=\"Set\"></form></p>");
+    // for display list elements
+    httpd_resp_sendstr_chunk(req, "<style> ul {list-style-type: none;} </style>");
 
-    httpd_resp_sendstr_chunk(req,  "<p><a href=\"/index.html\">Startseite</a></p>");
+    // Set volume:
+    httpd_resp_sendstr_chunk(req,  "<p><form method=\"post\" action=\""SETVOL_PATH"\">Lautstärke:<input type=\"text\" name=\"volume\" value=\"");
+    httpd_resp_sendstr_chunk(req,  sGetVolume());
+    httpd_resp_sendstr_chunk(req, "\"><input type=\"submit\" value=\"Set\"></form></p>\n");
+
+
+    // Handle playlist
+    httpd_resp_sendstr_chunk(req, "<p><form method=\"post\" action=\""PLAYLIST_PATH"\">\n<fieldset>\n<ul>\n");
+    snprintf(text, sizeof(text),"<li><label><input type=\"checkbox\" name=\"%s\" value=\"1\"%s>%s</label></li>\n",
+    		"all",
+			(playlist_flags & flags_play_all ? "checked=\"checked\"" : ""),
+			"play all"
+    );
+    httpd_resp_sendstr_chunk(req, text);
+    snprintf(text, sizeof(text),"<li><label><input type=\"checkbox\" name=\"%s\" value=\"1\"%s>%s</label></li>\n",
+    		"random",
+			(playlist_flags & flags_shuffle ? "checked=\"checked\"" : ""),
+			"random"
+    );
+    httpd_resp_sendstr_chunk(req, text);
+    snprintf(text, sizeof(text),"<li><label><input type=\"checkbox\" name=\"%s\" value=\"1\"%s>%s</label></li>\n",
+    		"repeat",
+			(playlist_flags & flags_repeat ? "checked=\"checked\"" : ""),
+			"repeat"
+    );
+    httpd_resp_sendstr_chunk(req, text);
+
+    httpd_resp_sendstr_chunk(req,
+    		"</ul>\n" \
+			"  <input type=\"submit\" value=\"play\" name=\"action\">\n" \
+			"  <input type=\"submit\" value=\"stop\" name=\"action\">\n" \
+			"  <input type=\"submit\" value=\"next\" name=\"action\">\n" \
+			"  <input type=\"submit\" value=\"first\" name=\"action\">\n" \
+			"</fieldset>\n" \
+			"</form></p>\n"
+    );
+
+    httpd_resp_sendstr_chunk(req,  "<p><a href=\"/index.html\">Startseite</a></p>\n");
 
     /* Send remaining chunk of HTML file to complete it */
     httpd_resp_sendstr_chunk(req, HTML_FOOTER);
@@ -319,10 +507,53 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
 }
 
 static esp_err_t get_handler_settings_html(httpd_req_t *req) {
-    ESP_LOGI(TAG, "get_handler_files_html '%s'", req->uri);
+	ESP_LOGI(TAG, "%s '%s'", __func__, req->uri);
 
-    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "get_handler_files_html NYI");
-    return ESP_FAIL;
+	char*  buf;
+	size_t buf_len;
+
+	/* Get header value string length and allocate memory for length + 1,
+	 * extra byte for null termination */
+	buf_len = httpd_req_get_hdr_value_len(req, "Host") + 1;
+	if (buf_len > 1) {
+		buf = malloc(buf_len);
+		/* Copy null terminated value string into buffer */
+		if (httpd_req_get_hdr_value_str(req, "Host", buf, buf_len) == ESP_OK) {
+			ESP_LOGI(TAG, "Found header => Host: %s", buf);
+		}
+		free(buf);
+	}
+
+
+	/* Read URL query string length and allocate memory for length + 1,
+	 * extra byte for null termination */
+	buf_len = httpd_req_get_url_query_len(req) + 1;
+	if (buf_len > 1) {
+		buf = malloc(buf_len);
+		if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+			ESP_LOGI(TAG, "%s: Found URL query => %s", __func__, buf);
+			char param[32];
+			// Get value of expected key from query string
+			if (httpd_query_key_value(buf, "volume", param, sizeof(param)) == ESP_OK) {
+				ESP_LOGI(TAG, "%s: Found URL query parameter => volume=%s", __func__, param);
+				char *l;
+				long v = strtol(param, &l, 10);
+				if ( l) {
+					httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "volume not decimal");
+					return ESP_FAIL;
+				}
+				setVolume(v);
+
+			} else {
+				ESP_LOGI(TAG, "%s: unhandled parameter", __func__);
+			}
+		}
+		free(buf);
+	}
+
+	// Respond with an empty chunk to signal HTTP response completion
+	httpd_resp_send_chunk(req, NULL, 0);
+	return ESP_OK;
 
 }
 
@@ -349,19 +580,7 @@ static esp_err_t get_handler_download_html(httpd_req_t *req)
 
     ESP_LOGI(TAG, "%s: download '%s'", __func__, filename);
 
-    // If name has trailing '/', respond with directory contents
-    //if (filename[strlen(filename) - 1] == '/') {
-    //    return http_resp_dir_html(req, filepath);
-    //}
-
     if (stat(filepath, &file_stat) == -1) {
-        // If file not present on SPIFFS check if URI
-        // corresponds to one of the hardcoded paths
-        //if (strcmp(filename, "/index.html") == 0) {
-        //    return index_html_get_handler(req);
-//        } else if (strcmp(filename, "/favicon.ico") == 0) {
-//            return favicon_get_handler(req);
-//        }
         ESP_LOGE(TAG, "Failed to stat file : %s", filepath);
         // Respond with 404 Not Found
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File does not exist");
@@ -431,7 +650,7 @@ static esp_err_t common_get_handler(httpd_req_t *req) {
 		return get_handler_files_html(req);
 	} else if (strstr(req->uri, "/"DOWNLOAD_PATH"/") == req->uri) {
 		return get_handler_download_html(req);
-	} else if (strcmp(req->uri, "/"SETTINGS_HTML) == 0) {
+	} else if (strstr(req->uri, "/"SETTINGS_HTML) == req->uri) {
 		return get_handler_settings_html(req);
 	}
 	ESP_LOGE(TAG, "%s: no handler for '%s'", __func__, req->uri);
@@ -552,6 +771,8 @@ static esp_err_t upload_post_handler(httpd_req_t *req)
     fclose(fd);
     ESP_LOGI(TAG, "%s: File %s reception complete",__func__, filename);
 
+    build_playlist(BASE_PATH);
+
     // Redirect onto root to see the updated file list
     httpd_resp_set_status(req, "303 See Other");
     httpd_resp_set_hdr(req, "Location", "/"FILES_HTML);
@@ -598,6 +819,9 @@ static esp_err_t delete_post_handler(httpd_req_t *req)
     // Delete file
     unlink(filepath);
 
+    build_playlist(BASE_PATH);
+    dump_playlist();
+
     // Redirect onto root to see the updated file list
     httpd_resp_set_status(req, "303 See Other");
     httpd_resp_set_hdr(req, "Location", "/"FILES_HTML);
@@ -643,13 +867,17 @@ static esp_err_t play_post_handler(httpd_req_t *req)
     ESP_LOGI(TAG, "%s: play file : %s at %s", __func__, filename, filepath);
 
     // play with delay
-    if ( handle_play_midifile(filepath, 1)) {
+    if ( handle_play_midifile(filepath, 1, 0)) {
     	play_err();
         ESP_LOGE(TAG, "not a valid midi file : %s", filename);
          // Respond with 400 Bad Request
          httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Not a valid MIDI-File");
          return ESP_FAIL;
     }
+    // make this actual in playlist
+    setplaylistposition(filepath);
+
+	dump_playlist();
 
     // Redirect onto root to see the updated file list
     httpd_resp_set_status(req, "303 See Other");
@@ -806,31 +1034,31 @@ esp_err_t start_file_server(const char *base_path)
 #endif
 
     // URI handler for stop playing
-    httpd_uri_t stop_playing = {
-        .uri       = "/"STOP_PATH,
-        .method    = HTTP_POST,
-        .handler   = stop_playing_post_handler,
-        .user_ctx  = server_data    // Pass server data as context
-    };
-    httpd_register_uri_handler(server, &stop_playing);
+//    httpd_uri_t stop_playing = {
+//        .uri       = "/"STOP_PATH,
+//        .method    = HTTP_POST,
+//        .handler   = stop_playing_post_handler,
+//        .user_ctx  = server_data    // Pass server data as context
+//    };
+//    httpd_register_uri_handler(server, &stop_playing);
 
     // URI handler for playing random
     httpd_uri_t playrandom = {
-        .uri       = "/"PLAY_RANDOM_PATH,
+        .uri       = "/"PLAYLIST_PATH,
         .method    = HTTP_POST,
-        .handler   = playrandom_post_handler,
+        .handler   = playlist_post_handler,
         .user_ctx  = server_data    // Pass server data as context
     };
     httpd_register_uri_handler(server, &playrandom);
 
     // URI handler for volume control
-    //httpd_uri_t setvol50 = {
-    //    .uri       = "/setvol50",
-    //    .method    = HTTP_POST,
-    //    .handler   = setvol50_post_handler,
-    //    .user_ctx  = server_data    // Pass server data as context
-    //};
-    //httpd_register_uri_handler(server, &setvol50);
+    httpd_uri_t setvol50 = {
+        .uri       = "/"SETVOL_PATH,
+        .method    = HTTP_POST,
+        .handler   = setvol_post_handler,
+        .user_ctx  = server_data    // Pass server data as context
+    };
+    httpd_register_uri_handler(server, &setvol50);
 
 //    httpd_uri_t setvol100 = {
 //         .uri       = "/setvol100",
