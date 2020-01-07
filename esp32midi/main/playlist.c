@@ -50,8 +50,10 @@ void dump_playlist() {
 	);
 
 	for ( T_PLAYLIST_ENTRY *d=playlist; d; d=d->nxt) {
-		ESP_LOGI(TAG, "%s: %s %ld %d", __func__,
-				d->path, d->sortkey, d->play_status);
+		ESP_LOGI(TAG, "%s: %10ld %s %s ", __func__,
+				 d->sortkey,
+				 PLAYSTATUS2TEXT(d->play_status),
+				 d->path);
 	}
 
 	ESP_LOGI(TAG, "%s: end of playlist", __func__);

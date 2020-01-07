@@ -121,19 +121,13 @@ enum enum_play_status {
 	play_status_new, play_status_actual, play_status_played
 };
 
+#define PLAYSTATUS2TEXT(c) ( c==play_status_new ? "NEW___" : c==play_status_actual ? "ACTUAL" : c==play_status_played ? "PLAYED" :"UNKNOWN" )
+
 enum enum_flags {
 	flags_none     = 0x0000,
 	flags_repeat   = 0x0001,
 	flags_shuffle  = 0x0002,
 	flags_play_all = 0x0004
-};
-
-enum enum_actions {
-	actions_none,
-	actions_play,
-	actions_stop,
-	actions_next,
-	actions_first
 };
 
 // structures
@@ -187,6 +181,7 @@ typedef struct {
 	// play parameter
 	long timermillies; // timerperiod in ms
 	long timer_ticks; // ticks per timer processing
+	// LED control:
 	int blink_cnt;
 	int is_on;
 #ifdef WITH_PRINING_MIDIFILES
@@ -227,14 +222,18 @@ void midi_volume(int vol);
 // MIDI file
 int open_midifile(const char *filename);
 int parse_midifile();
-int handle_play_midifile(const char *filename, int with_delay, int with_full_volume);
-int handle_print_midifile(const char *filename);
+void handle_play_midifile(const char *filename, int with_delay, int with_full_volume);
 void handle_play_next_from_playlist(int force_repeat, int with_delay, int with_full_volume);
-int handle_stop_midifile();
-int handle_next_from_playlist();
+void handle_stop_midifile();
+void handle_pause_midifile();
+void handle_play(int force_repeat, int with_delay, int with_full_volume);
 void setVolume(int vol);
 int getVolume();
 char *sGetVolume();
+
+#ifdef WITH_PRINING_MIDIFILES
+int handle_print_midifile(const char *filename);
+#endif
 
 // Start Fileserver
 esp_err_t start_file_server(const char *base_path);

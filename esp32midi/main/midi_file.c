@@ -620,7 +620,6 @@ static void periodic_midi_timer_callback(void* arg) {
 		initSongData();
 	}
 
-	static int last_action = action_none;
 	int rc = 0;
 	int64_t time;
 	uint64_t period;
@@ -632,22 +631,23 @@ static void periodic_midi_timer_callback(void* arg) {
 
 	case action_setvolume:
 		midi_volume(play_volume);
-		action= action_play;
+		action = action_play;
 		break;
 
 	case action_play:
 		rc = parse_midifile();
 		if (rc <= 0) {
-			// Schluss, Timer stoppen
+			// play finished or error, stop timer
+
 			time = esp_timer_get_time();
 			ESP_LOGI(TAG, "%s: play complete, duration %lld ms", __func__, (time - globalSongData->starttime)/1000 );
 
 			stop_playing();
 
 			if ( playlist_flags & flags_play_all) {
-	        	const int force_repeat = 0;
-	        	const int with_delay = 0;
-	        	const int with_full_volume = 0;
+				const int force_repeat = 0;
+				const int with_delay = true;
+				const int with_full_volume = 0;
 				handle_play_next_from_playlist(force_repeat,with_delay,with_full_volume );
 			}
 		}
@@ -665,13 +665,7 @@ static void periodic_midi_timer_callback(void* arg) {
 
 		break;
 
-	case action_pause: // XXX ???
-		if ( last_action != action_none ) {
-			// resume playing
-			action = last_action;
-		} else {
-
-		}
+	case action_pause:
 		break;
 
 	case action_playnext:
@@ -699,7 +693,6 @@ static void periodic_midi_timer_callback(void* arg) {
  		ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, period*1000));
  		timer_is_running = 1;
  		action = action_play;
-
  		break;
 
 	default:
@@ -710,49 +703,84 @@ static void periodic_midi_timer_callback(void* arg) {
 
 }
 
-int handle_play_midifile(const char *filename , int with_delay, int with_full_volume) {
-	int rc = -1;
-	do {
+void handle_play_midifile(const char *filename , int with_delay, int with_full_volume) {
+
 #ifdef WITH_PRINING_MIDIFILES
-		globalSongData->printonly = false;
+	globalSongData->printonly = false;
 #endif
 
-		if ( filename_nxt) {
-			free(filename_nxt);
-		}
-		filename_nxt = strdup(filename);
-		action = with_delay ? action_playnext_with_delay : action_playnext;
-		play_with_full_volume = with_full_volume;
+	if ( filename_nxt) {
+		free(filename_nxt);
+	}
+	filename_nxt = strdup(filename);
 
-		if (periodic_midi_timer == NULL) {
-			// have to create the timer
-			const esp_timer_create_args_t periodic_timer_args = {
-					.callback =	&periodic_midi_timer_callback,
-					// name is optional, but may help identify the timer when debugging
-					.name = "periodic_midi"
-			};
+	action = with_delay ? action_playnext_with_delay : action_playnext;
+	play_with_full_volume = with_full_volume;
 
-			ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_midi_timer));
-		}
+	if (periodic_midi_timer == NULL) {
+		// have to create the timer
+		const esp_timer_create_args_t periodic_timer_args = {
+				.callback =	&periodic_midi_timer_callback,
+				// name is optional, but may help identify the timer when debugging
+				.name = "periodic_midi"
+		};
 
-		// if the timer is not running: Start it for a small period
-		if ( ! timer_is_running) {
-			ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, 1000));
-			timer_is_running = 1;
-		}
+		ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_midi_timer));
+	}
 
-		ESP_LOGI(TAG, "%s: playing midifile %s initiated %s%s", __func__, filename, (with_delay ? " with_delay" :""), play_with_full_volume ? " with full volume":"");
+	// if the timer is not running: Start it for a small period
+	if ( ! timer_is_running) {
+		ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_midi_timer, 1000));
+		timer_is_running = 1;
+	}
 
-		rc = 0;
-	} while(0);
+	ESP_LOGI(TAG, "%s: playing midifile %s initiated %s%s", __func__, filename, (with_delay ? " with_delay" :""), play_with_full_volume ? " with full volume":"");
 
-	return rc;
+
 }
 
 #ifdef WITH_PRINING_MIDIFILES
 #endif
 
-int handle_stop_midifile() {
+
+void handle_play_next_from_playlist(int force_repeat, int with_delay, int with_full_volume) {
+
+	char *nxtfile = nxtplaylistentry(force_repeat);
+	if ( !nxtfile) {
+		ESP_LOGI(TAG, "%s: no next midi file", __func__);
+		handle_stop_midifile();
+		return;
+	}
+
+	ESP_LOGI(TAG, "%s: next midi file: %s", __func__, nxtfile);
+	handle_play_midifile(nxtfile, with_delay, with_full_volume);
+
+}
+
+void handle_play(int force_repeat, int with_delay, int with_full_volume) {
+
+	if ( action == action_play ) {
+		ESP_LOGI(TAG, "%s: already playing", __func__);
+
+	} else if ( action == action_pause) {
+		action = action_play;
+		ESP_LOGI(TAG, "%s: resume playing", __func__);
+
+	} else {
+		char *nxtfile = nxtplaylistentry(force_repeat);
+		if ( !nxtfile) {
+			ESP_LOGI(TAG, "%s: no next midi file", __func__);
+			handle_stop_midifile();
+			return;
+		}
+
+		ESP_LOGI(TAG, "%s: next midi file: %s", __func__, nxtfile);
+		handle_play_midifile(nxtfile, with_delay, with_full_volume);
+	}
+
+}
+
+void handle_stop_midifile() {
 
 	if ( filename_nxt) {
 		free(filename_nxt);
@@ -770,100 +798,24 @@ int handle_stop_midifile() {
 		ESP_LOGI(TAG, "%s: stop playing: not yet initalized", __func__);
 
 	}
-
-	return 0;
-
 }
 
-void handle_play_next_from_playlist(int force_repeat, int with_delay, int with_full_volume) {
 
-	char *nxtfile = nxtplaylistentry(force_repeat);
-	if ( !nxtfile) {
-		ESP_LOGI(TAG, "%s: no next midi file", __func__);
-		handle_stop_midifile();
-		return;
+void handle_pause_midifile() {
+	if ( action == action_play) {
+		action = action_pause;
+	} else if ( action == action_pause) {
+		action = action_play;
 	}
-
-	ESP_LOGI(TAG, "%s: next midi file: %s", __func__, nxtfile);
-	handle_play_midifile(nxtfile, with_delay, with_full_volume);
-
 }
-
-/*
-int handle_play_random_midifile(const char *dirpath, int with_delay, int with_full_volume) {
-
-	char entrypath[256+1];
-
-    struct dirent *entry;
-    struct stat entry_stat;
-
-    int midifilecnt = 0;
-    DIR *dir = opendir(dirpath);
-    if (!dir) {
-        ESP_LOGE(TAG, "%s: handle_play_random_midifile; Failed to stat dir : %s", __func__, dirpath);
-        return -1;
-    }
-
-    // first reading of dir - discover number of midi files
-    while ((entry = readdir(dir)) != NULL) {
-    	if (entry->d_type == DT_DIR)
-    		continue;
-        snprintf(entrypath, sizeof(entrypath),"%s/%s", dirpath, entry->d_name);
-        if (stat(entrypath, &entry_stat) == -1) {
-            ESP_LOGE(TAG, "%s: %s: Failed to stat %s", __func__, entrypath, entry->d_name);
-            continue;
-        }
-        if (! IS_FILE_EXT(entrypath, ".mid")) {
-    		//ESP_LOGI(TAG, "%s: %s is not a midifile", __func__, entrypath);
-    		continue;
-        }
-		ESP_LOGI(TAG, "%s[%d]: %s is a midifile", __func__, ++midifilecnt, entrypath);
-
-    }
-    closedir(dir);
-
-    int r = random_number(midifilecnt);
-    ESP_LOGI(TAG, "%s: random filenumber is %d/%d", __func__, r, midifilecnt);
-
-    // second reading of dir - discover the random midi file and start playing
-    dir = opendir(dirpath);
-    if (!dir) {
-        ESP_LOGE(TAG, "%s: Failed to stat dir : %s", __func__, dirpath);
-        return -1;
-    }
-    while ((entry = readdir(dir)) != NULL) {
-    	if (entry->d_type == DT_DIR)
-    		continue;
-        snprintf(entrypath, sizeof(entrypath),"%s/%s", dirpath, entry->d_name);
-        if (stat(entrypath, &entry_stat) == -1) {
-            ESP_LOGE(TAG, "%s: %s: Failed to stat %s", __func__, entrypath, entry->d_name);
-            continue;
-        }
-        if (! IS_FILE_EXT(entrypath, ".mid")) {
-    		//ESP_LOGI(TAG, "%s: %s is not a midifile", __func__, entrypath);
-    		continue;
-        }
-        r--;
-		//ESP_LOGI(TAG, "%s[%d]: %s is a midifile", __func__, r, entrypath);
-		if ( r > 0 ){
-			continue;
-		}
-		ESP_LOGI(TAG, "%s: play %s", __func__, entrypath);
-		handle_play_midifile(entrypath, with_delay, with_full_volume);
-		break;
-    }
-    closedir(dir);
-
-
-    return 0;
-}
-*/
 
 
 void setVolume(int vol) {
 	play_volume = vol;
 	if ( action == action_play) {
 		action = action_setvolume;
+	} else {
+		midi_volume(play_volume);
 	}
 }
 
