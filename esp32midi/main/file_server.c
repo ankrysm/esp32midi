@@ -335,6 +335,7 @@ static esp_err_t get_handler_index_html(httpd_req_t *req)
  */
 static esp_err_t get_handler_files_html(httpd_req_t *req) {
 
+
     char dirpath[FILE_PATH_MAX];
 
     ESP_LOGI(TAG, "%s '%s'", __func__, req->uri);
@@ -420,7 +421,7 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
             continue;
         }
         sprintf(entrysize, "%ld", entry_stat.st_size);
-        ESP_LOGI(TAG, "Found %s : %s (%s bytes)", entrytype, entry->d_name, entrysize);
+        // ESP_LOGI(TAG, "Found %s : %s (%s bytes)", entrytype, entry->d_name, entrysize);
 
         /* Send chunk of HTML file containing table entries with file name and size */
         httpd_resp_sendstr_chunk(req, "<tr><td><a href=\""DOWNLOAD_PATH"/");
@@ -431,11 +432,18 @@ static esp_err_t get_handler_files_html(httpd_req_t *req) {
         httpd_resp_sendstr_chunk(req, "\">");
         httpd_resp_sendstr_chunk(req, entry->d_name);
         httpd_resp_sendstr_chunk(req, "</a>");
+
+        char sortkeytext[128];
+        long sortkey = sortkey4filename(entrypath);
+        snprintf(sortkeytext, sizeof(sortkeytext)," (%ld)", sortkey);
+        httpd_resp_sendstr_chunk(req, sortkeytext);
+
         if ( globalSongData && globalSongData->filepath && strlen(globalSongData->filepath) > sizeof(BASE_PATH)) {
         	if ( !strcmp(entry->d_name, &(globalSongData->filepath)[sizeof(BASE_PATH)])) {
         		httpd_resp_sendstr_chunk(req, " (play)");
         	}
         }
+
         httpd_resp_sendstr_chunk(req, "</td><td>");
         httpd_resp_sendstr_chunk(req, entrysize);
 

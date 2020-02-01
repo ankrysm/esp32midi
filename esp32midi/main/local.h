@@ -179,7 +179,7 @@ typedef struct {
 	long microseconds_per_tick;
 	long song_ticks; // ticks from the beginning
 	// play parameter
-	long timermillies; // timerperiod in ms
+	long timermillies; // timer period in ms
 	long timer_ticks; // ticks per timer processing
 	// LED control:
 	int blink_cnt;
@@ -195,6 +195,7 @@ typedef struct PLAYLIST_ENTRY{
 	char *path;
 	int play_status;
 	long sortkey;
+	long new_sortkey; // for renumber
 	struct PLAYLIST_ENTRY *nxt;
 } T_PLAYLIST_ENTRY;
 
@@ -235,7 +236,7 @@ char *sGetVolume();
 int handle_print_midifile(const char *filename);
 #endif
 
-// Start Fileserver
+// Start files erver
 esp_err_t start_file_server(const char *base_path);
 
 // sntp
@@ -256,6 +257,7 @@ T_PLAYLIST_ENTRY *actualplayedentry(void);
 char *nxtplaylistentry(int force_repeat);
 int setplaylistposition(const char *filename);
 esp_err_t build_playlist(const char *dirpath);
+long sortkey4filename(const char *filename);
 
 // variables
 

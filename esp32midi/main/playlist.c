@@ -21,6 +21,7 @@ void freeplaylist() {
 	for ( d = playlist; d; d = dnxt)  {
 		dnxt = d->nxt;
 		free(d->path);
+		free(d);
 	}
 	playlist = NULL;
 }
@@ -34,6 +35,8 @@ void restart_playlist() {
 		d->play_status = play_status_new;
 	}
 
+	// new sorting
+	update_playlist();
 }
 
 
@@ -49,17 +52,72 @@ void dump_playlist() {
 			(playlist_flags & flags_play_all ? "PLAY_ALL ":"")
 	);
 
-	for ( T_PLAYLIST_ENTRY *d=playlist; d; d=d->nxt) {
-		ESP_LOGI(TAG, "%s: %10ld %s %s ", __func__,
-				 d->sortkey,
-				 PLAYSTATUS2TEXT(d->play_status),
-				 d->path);
+	long start_sortkey=-1;
+
+	while(true) {
+		long min_sortkey = LONG_MAX;
+		for ( T_PLAYLIST_ENTRY *d=playlist; d; d=d->nxt) {
+			if ( d->sortkey > start_sortkey && d->sortkey < min_sortkey) {
+				min_sortkey=d->sortkey;
+			}
+		}
+		if ( min_sortkey == LONG_MAX)
+			break; // nothing found
+
+		start_sortkey = min_sortkey;
+
+		// maybe more than one entry has the same sortkey..
+		// so got thru the list
+		for ( T_PLAYLIST_ENTRY *d=playlist; d; d=d->nxt) {
+			if ( d->sortkey == start_sortkey) {
+				ESP_LOGI(TAG, "%s: %10ld %s %s ", __func__,
+						d->sortkey,
+						PLAYSTATUS2TEXT(d->play_status),
+						d->path);
+			}
+		}
 	}
 
 	ESP_LOGI(TAG, "%s: end of playlist", __func__);
 
 }
 
+/*
+ * buil new sortkeys - it's a simple sort
+ * instead of a bubblesort..
+ */
+void renumber_playlist() {
+	if ( !playlist) {
+		return;
+	}
+
+	long start_sortkey=-1;
+	long new_sortkey = 0;
+
+	while(true) {
+		long min_sortkey = LONG_MAX;
+		for ( T_PLAYLIST_ENTRY *d=playlist; d; d=d->nxt) {
+			if ( d->sortkey > start_sortkey && d->sortkey < min_sortkey) {
+				min_sortkey=d->sortkey;
+			}
+		}
+		if ( min_sortkey == LONG_MAX)
+			break; // nothing found
+
+		start_sortkey = min_sortkey;
+
+		// maybe more than one entry has the same sortkey..
+		// so got thru the list
+		for ( T_PLAYLIST_ENTRY *d=playlist; d; d=d->nxt) {
+			if ( d->sortkey == start_sortkey) {
+				d->new_sortkey = new_sortkey++;
+			}
+		}
+	}
+	for ( T_PLAYLIST_ENTRY *d=playlist; d; d=d->nxt) {
+		d->sortkey = d->new_sortkey;
+	}
+}
 
 /**
  * build a new playlist, old playlist will be free'd
@@ -85,36 +143,42 @@ esp_err_t build_playlist(const char *dirpath) {
     while ((entry = readdir(dir)) != NULL) {
     	if (entry->d_type == DT_DIR)
     		continue;
-        snprintf(entrypath, sizeof(entrypath),"%s/%s", dirpath, entry->d_name);
-        if (stat(entrypath, &entry_stat) == -1) {
-            ESP_LOGE(TAG, "%s: %s: Failed to stat %s", __func__, entrypath, entry->d_name);
-            continue;
-        }
-        if (! IS_FILE_EXT(entrypath, ".mid")) {
-    		//ESP_LOGI(TAG, "%s: %s is not a midifile", __func__, entrypath);
+    	if (! IS_FILE_EXT(entry->d_name, ".mid")) {
+    		//ESP_LOGI(TAG, "%s: %s is not a midi file", __func__, entrypath);
     		continue;
-        }
-		ESP_LOGI(TAG, "%s[%d]: %s added", __func__, ++midifilecnt, entrypath);
+    	}
 
-		T_PLAYLIST_ENTRY *d = calloc(1, sizeof(T_PLAYLIST_ENTRY));
-		d->path = strdup(entrypath);
-		d->sortkey = shuffle ? random() : midifilecnt;
-		d->play_status = play_status_new;
+    	snprintf(entrypath, sizeof(entrypath),"%s/%s", dirpath, entry->d_name);
+    	if (stat(entrypath, &entry_stat) == -1) {
+    		ESP_LOGE(TAG, "%s: %s: Failed to stat %s", __func__, entrypath, entry->d_name);
+    		continue;
+    	}
 
-		if ( playlist) {
-			T_PLAYLIST_ENTRY *dd;
-			for (dd= playlist; dd->nxt; dd=dd->nxt) {}
-			dd->nxt = d;
-		} else {
-			playlist = d;
-		}
+    	ESP_LOGI(TAG, "%s[%d]: %s added", __func__, ++midifilecnt, entrypath);
+
+    	T_PLAYLIST_ENTRY *d = calloc(1, sizeof(T_PLAYLIST_ENTRY));
+    	d->path = strdup(entrypath);
+    	d->sortkey = shuffle ? random() : midifilecnt;
+    	d->play_status = play_status_new;
+
+    	if ( playlist) {
+    		T_PLAYLIST_ENTRY *dd;
+    		for (dd= playlist; dd->nxt; dd=dd->nxt) {}
+    		dd->nxt = d;
+    	} else {
+    		playlist = d;
+    	}
     }
     closedir(dir);
+
+    if ( shuffle) {
+    	renumber_playlist();
+    }
     return ESP_OK;
 }
 
 /**
- * switch between shuffle and linear
+ * switch between shuffle and linear order
  * play-status will be kept
  */
 void update_playlist() {
@@ -127,9 +191,14 @@ void update_playlist() {
 	for ( T_PLAYLIST_ENTRY *d=playlist; d; d=d->nxt) {
 		d->sortkey = shuffle ? random() : cnt++;
 	}
-
-
+    if ( shuffle) {
+    	renumber_playlist();
+    }
 }
+
+/**
+ * gets the next entry from the playlist. sets the old to played and the new to played actual
+ */
 T_PLAYLIST_ENTRY *nxtentry() {
 	if ( !playlist) {
 		return NULL;
@@ -158,7 +227,9 @@ T_PLAYLIST_ENTRY *nxtentry() {
 	return nxt;
 }
 
-
+/*
+ * gets the actual played entry from the list
+ */
 T_PLAYLIST_ENTRY *actualplayedentry() {
 	if ( !playlist)
 		return NULL;
@@ -185,9 +256,6 @@ char *nxtplaylistentry(int force_repeat) {
 		// all played
 		if ( (playlist_flags & flags_repeat) || force_repeat) {
 			restart_playlist();
-			if ( playlist_flags & flags_shuffle) {
-				update_playlist();
-			}
 			nxt = nxtentry();
 			return nxt ? nxt->path : NULL;
 		}
@@ -196,7 +264,9 @@ char *nxtplaylistentry(int force_repeat) {
 	return nxt->path;
 }
 
-
+/**
+ * sets the file to actual_played
+ */
 int setplaylistposition(const char *filename) {
 	if ( !playlist || !filename) {
 		return 0;
@@ -225,3 +295,22 @@ int setplaylistposition(const char *filename) {
 
 	return 0;
 }
+
+
+
+long sortkey4filename(const char *filename) {
+	if ( !playlist || !filename) {
+		return 0;
+	}
+	for ( T_PLAYLIST_ENTRY *d=playlist; d; d=d->nxt) {
+		if ( !strcmp(d->path, filename)) {
+			// matches
+			return  d->sortkey;
+		}
+	}
+
+	return 0;
+}
+
+
+
